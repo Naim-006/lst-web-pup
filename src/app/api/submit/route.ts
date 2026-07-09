@@ -66,15 +66,21 @@ export async function POST(req: NextRequest) {
       .eq('role', 'pupil')
       .maybeSingle();
 
-    const { data: activePupil } = await admin
-      .from('pupils')
-      .select('id')
-      .eq('instructor_id', link.instructor_id)
-      .eq('email', emailLower)
-      .neq('status', 'cancelled')
+    if (existingProfile) {
+      return NextResponse.json({
+        error: 'This email is already registered. Please sign in to your account instead.',
+      }, { status: 409 });
+    }
+
+    const { data: activeLink } = await admin
+      .from('instructor_pupil_links')
+      .select('id, pupils!inner(instructor_id, email)')
+      .eq('pupils.instructor_id', link.instructor_id)
+      .eq('pupils.email', emailLower)
+      .eq('status', 'active')
       .maybeSingle();
 
-    if (existingProfile || activePupil) {
+    if (activeLink) {
       return NextResponse.json({
         error: 'This email is already associated with a pupil. Please contact your instructor if you need to regain access.',
       }, { status: 409 });

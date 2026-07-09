@@ -28,13 +28,17 @@ export async function GET(req: NextRequest) {
     .eq('role', 'pupil')
     .maybeSingle();
 
-  const { data: activePupil } = await admin
-    .from('pupils')
-    .select('id')
-    .eq('instructor_id', link.instructor_id)
-    .eq('email', emailLower)
-    .neq('status', 'cancelled')
+  if (existingProfile) {
+    return NextResponse.json({ exists: true });
+  }
+
+  const { data: activeLink } = await admin
+    .from('instructor_pupil_links')
+    .select('id, pupils!inner(instructor_id, email)')
+    .eq('pupils.instructor_id', link.instructor_id)
+    .eq('pupils.email', emailLower)
+    .eq('status', 'active')
     .maybeSingle();
 
-  return NextResponse.json({ exists: !!existingProfile || !!activePupil });
+  return NextResponse.json({ exists: !!activeLink });
 }
