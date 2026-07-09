@@ -19,12 +19,12 @@ export async function GET(req: NextRequest) {
   }
 
   const admin = getSupabaseAdmin();
-  const { data: pupil } = await admin
-    .from('pupils')
+  const { data: profile } = await admin
+    .from('profiles')
     .select('id')
-    .eq('instructor_id', link.instructor_id)
     .eq('email', email.toLowerCase())
+    .eq('role', 'pupil')
     .maybeSingle();
 
-  return NextResponse.json({ exists: !!pupil });
+  return NextResponse.json({ exists: !!profile });
 }
