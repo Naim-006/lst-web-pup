@@ -55,18 +55,18 @@ export async function POST(req: NextRequest) {
       }, { status: 409 });
     }
 
-    // Check if email already has an auth account (signed up previously)
+    // Check if email already exists (as pupil record or auth account)
     const admin = getSupabaseAdmin();
-    const { data: existingProfile } = await admin
-      .from('profiles')
-      .select('id')
-      .eq('email', email.toLowerCase())
-      .eq('role', 'pupil')
-      .maybeSingle();
+    const emailLower = email.toLowerCase();
 
-    if (existingProfile) {
+    const [existingPupil, existingProfile] = await Promise.all([
+      admin.from('pupils').select('id').eq('instructor_id', link.instructor_id).eq('email', emailLower).maybeSingle(),
+      admin.from('profiles').select('id').eq('email', emailLower).eq('role', 'pupil').maybeSingle(),
+    ]);
+
+    if (existingPupil || existingProfile) {
       return NextResponse.json({
-        error: 'This email is already registered as a pupil. Please sign in to your account instead.',
+        error: 'This email is already associated with a pupil. Please contact your instructor if you need to regain access.',
       }, { status: 409 });
     }
 

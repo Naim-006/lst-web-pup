@@ -19,12 +19,12 @@ export async function GET(req: NextRequest) {
   }
 
   const admin = getSupabaseAdmin();
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('email', email.toLowerCase())
-    .eq('role', 'pupil')
-    .maybeSingle();
+  const emailLower = email.toLowerCase();
 
-  return NextResponse.json({ exists: !!profile });
+  const [pupilResult, profileResult] = await Promise.all([
+    admin.from('pupils').select('id').eq('instructor_id', link.instructor_id).eq('email', emailLower).maybeSingle(),
+    admin.from('profiles').select('id').eq('email', emailLower).eq('role', 'pupil').maybeSingle(),
+  ]);
+
+  return NextResponse.json({ exists: !!pupilResult || !!profileResult });
 }
