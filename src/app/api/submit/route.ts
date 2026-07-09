@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       admin.from('profiles').select('id').eq('email', emailLower).eq('role', 'pupil').maybeSingle(),
     ]);
 
-    if (existingPupil || existingProfile) {
+    if (existingPupil?.data || existingProfile?.data) {
       return NextResponse.json({
         error: 'This email is already associated with a pupil. Please contact your instructor if you need to regain access.',
       }, { status: 409 });

@@ -21,10 +21,10 @@ export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
   const emailLower = email.toLowerCase();
 
-  const [pupilResult, profileResult] = await Promise.all([
+  const [pupilRes, profileRes] = await Promise.all([
     admin.from('pupils').select('id').eq('instructor_id', link.instructor_id).eq('email', emailLower).maybeSingle(),
     admin.from('profiles').select('id').eq('email', emailLower).eq('role', 'pupil').maybeSingle(),
   ]);
 
-  return NextResponse.json({ exists: !!pupilResult || !!profileResult });
+  return NextResponse.json({ exists: !!(pupilRes?.data) || !!(profileRes?.data) });
 }
