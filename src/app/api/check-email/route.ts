@@ -21,13 +21,6 @@ export async function GET(req: NextRequest) {
   const admin = getSupabaseAdmin();
   const emailLower = email.toLowerCase();
 
-  const { data: existingPupil } = await admin
-    .from('pupils')
-    .select('id')
-    .eq('instructor_id', link.instructor_id)
-    .eq('email', emailLower)
-    .maybeSingle();
-
   const { data: existingProfile } = await admin
     .from('profiles')
     .select('id')
@@ -35,5 +28,13 @@ export async function GET(req: NextRequest) {
     .eq('role', 'pupil')
     .maybeSingle();
 
-  return NextResponse.json({ exists: !!existingPupil || !!existingProfile });
+  const { data: activePupil } = await admin
+    .from('pupils')
+    .select('id')
+    .eq('instructor_id', link.instructor_id)
+    .eq('email', emailLower)
+    .neq('status', 'cancelled')
+    .maybeSingle();
+
+  return NextResponse.json({ exists: !!existingProfile || !!activePupil });
 }

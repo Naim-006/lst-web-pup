@@ -59,13 +59,6 @@ export async function POST(req: NextRequest) {
     const admin = getSupabaseAdmin();
     const emailLower = email.toLowerCase();
 
-    const { data: existingPupil } = await admin
-      .from('pupils')
-      .select('id')
-      .eq('instructor_id', link.instructor_id)
-      .eq('email', emailLower)
-      .maybeSingle();
-
     const { data: existingProfile } = await admin
       .from('profiles')
       .select('id')
@@ -73,7 +66,15 @@ export async function POST(req: NextRequest) {
       .eq('role', 'pupil')
       .maybeSingle();
 
-    if (existingPupil || existingProfile) {
+    const { data: activePupil } = await admin
+      .from('pupils')
+      .select('id')
+      .eq('instructor_id', link.instructor_id)
+      .eq('email', emailLower)
+      .neq('status', 'cancelled')
+      .maybeSingle();
+
+    if (existingProfile || activePupil) {
       return NextResponse.json({
         error: 'This email is already associated with a pupil. Please contact your instructor if you need to regain access.',
       }, { status: 409 });
