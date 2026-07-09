@@ -494,7 +494,7 @@ export default function PupilInvitePage({ params }: { params: { token: string } 
              <textarea rows={2} value={form.notes} onChange={(e) => updateField('notes', e.target.value)} className="field-input resize-y min-h-[80px]" placeholder="Anything else you'd like your instructor to know?" />
           </div>
 
-          <button type="submit" disabled={submitting} className="btn-primary w-full py-4 text-base">
+          <button type="submit" disabled={submitting || existingPupilEmail === form.email} className="btn-primary w-full py-4 text-base">
             {submitting ? <><span className="spinner" /> Submitting…</> : 'Submit Registration'}
           </button>
         </form>
