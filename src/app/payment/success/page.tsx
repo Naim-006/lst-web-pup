@@ -64,7 +64,7 @@ function PaymentSuccessContent() {
 
   const success = data?.status === 'completed' || data?.status === 'paid';
   const pending = data?.status === 'pending';
-  const title = success ? 'Payment Successful!' : (pending ? 'Processing...' : (error ? 'Payment Not Found' : 'Processing...'));
+  const title = success ? 'Payment Successful!' : (pending ? 'Processing...' : (error ? 'Check Your Email or app' : 'Processing...'));
 
   const [retrying, setRetrying] = useState(false);
   const retry = () => {
@@ -73,7 +73,7 @@ function PaymentSuccessContent() {
   };
 
   const iconType = success ? 'check' : (pending ? 'clock' : (error ? 'x' : 'clock'));
-  const icon = success ? 'check' : (error ? 'x' : 'clock');
+  const icon = success ? 'check' : (error ? '✓' : 'clock');
 
   return (
     <div className={`auth-page ${success ? 'payment-success-glow' : 'payment-cancelled-glow'} min-h-screen flex items-center justify-center p-6`}>
@@ -105,7 +105,7 @@ function PaymentSuccessContent() {
             <p className="text-[var(--text-secondary)] text-sm leading-relaxed mb-8 max-w-sm mx-auto">
               {success ? 'Your payment was processed successfully. Your subscription is now active.' :
                pending ? 'Your payment is confirmed. Your subscription will activate in a moment.' :
-               error ? 'We could not find your payment details yet. It may still be processing.' :
+               error ? 'It may still be processing.' :
                'Your payment is being processed. This page will update automatically.'}
             </p>
 
@@ -178,15 +178,7 @@ function PaymentSuccessContent() {
 
             {error && (
               <div className="flex flex-col gap-3 mt-6">
-                <button onClick={retry} disabled={retrying} className="btn-primary w-full justify-center text-base py-3">
-                  {retrying ? (
-                    <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Retrying...</>
-                  ) : (
-                    <><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg> Retry</>
-                  )}
-                </button>
+                
               </div>
             )}
             <Link
