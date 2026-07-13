@@ -84,22 +84,7 @@ function PaymentSuccessContent() {
 
         <div className="relative bg-white/90 backdrop-blur-xl border border-white/60 rounded-[32px] shadow-2xl p-8 md:p-10 animate-fade-in-up">
           <div className="text-center">
-            <div className={`w-20 h-20 mx-auto mb-6 rounded-[24px] border-2 flex items-center justify-center shadow-lg ${success ? 'bg-gradient-to-br from-[#f0fdf4] to-[#dcfce7] border-[#bbf7d0] shadow-[#10b981]/10' : pending ? 'bg-gradient-to-br from-[#fffbeb] to-[#fef3c7] border-[#fde68a] shadow-[#f59e0b]/10' : 'bg-gradient-to-br from-[#fef2f2] to-[#fee2e2] border-[#fecaca] shadow-[#ef4444]/10'}`}>
-              {iconType === 'check' ? (
-                <svg className="w-10 h-10 text-[#166534]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              ) : iconType === 'clock' ? (
-                <svg className="w-10 h-10 text-[#92400e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
-                  <circle cx="12" cy="12" r="10" />
-                </svg>
-              ) : (
-                <svg className="w-10 h-10 text-[#991b1b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              )}
-            </div>
+
 
             <h1 className="text-3xl font-black text-[var(--text-primary)] mb-2 tracking-tight">{title}</h1>
             <p className="text-[var(--text-secondary)] text-sm leading-relaxed mb-8 max-w-sm mx-auto">
