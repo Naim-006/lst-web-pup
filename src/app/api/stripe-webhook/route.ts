@@ -42,36 +42,63 @@ export async function POST(req: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
-    const instructorId = session.metadata?.instructor_id;
-    const planId = session.metadata?.plan_id;
-    const planName = session.metadata?.plan_name;
+    const meta = session.metadata ?? {};
+    const sessionId = session.id as string;
+    const instructorId = meta.instructor_id;
+    const planId = meta.plan_id;
+    const planName = meta.plan_name ?? 'Subscription';
     const amount = session.amount_total ? session.amount_total / 100 : 0;
-    const durationMonths = parseInt(session.metadata?.duration_months || '1', 10);
+    const durationMonths = parseInt(meta.duration_months || '1', 10);
 
-    if (instructorId) {
+    // Try to update existing pending records from metadata first
+    const existingPaymentId = meta.payment_id;
+    const existingSubId = meta.subscription_id;
+
+    if (existingPaymentId && existingSubId) {
+      // Update existing pending records
       const now = new Date();
       const endDate = new Date(now);
       endDate.setMonth(endDate.getMonth() + durationMonths);
 
-      await admin.from('instructor_subscriptions').insert({
+      await admin.from('instructor_subscriptions').update({
+        payment_status: 'completed',
+        end_date: endDate.toISOString(),
+        status: 'active',
+      }).eq('id', existingSubId);
+
+      await admin.from('instructor_payments').update({
+        status: 'completed',
+        stripe_session_id: sessionId,
+        payment_date: now.toISOString(),
+      }).eq('id', existingPaymentId);
+    } else if (instructorId) {
+      // Fallback: create new records (legacy flow)
+      const now = new Date();
+      const endDate = new Date(now);
+      endDate.setMonth(endDate.getMonth() + durationMonths);
+
+      const { data: sub } = await admin.from('instructor_subscriptions').insert({
         instructor_id: instructorId,
         plan_id: planId || null,
-        plan_type: planName || 'Subscription',
+        plan_type: planName,
         amount: amount,
         start_date: now.toISOString(),
         end_date: endDate.toISOString(),
         status: 'active',
         payment_status: 'paid',
-        created_at: now.toISOString(),
-      });
+      }).select('id').single();
 
+      const txnId = `TXN-${now.toISOString().slice(2,10).replace(/-/g,'')}-${Math.random().toString(36).slice(2,6).toUpperCase()}`
       await admin.from('instructor_payments').insert({
         instructor_id: instructorId,
+        subscription_id: sub?.id ?? null,
         amount: amount,
         payment_date: now.toISOString(),
         status: 'completed',
         payment_method: 'stripe',
-        description: `Subscription payment - ${planName || 'Plan'}`,
+        stripe_session_id: sessionId,
+        description: `Subscription payment - ${planName}`,
+        txn_id: txnId,
       });
     }
   }
