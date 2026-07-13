@@ -63,7 +63,16 @@ function PaymentSuccessContent() {
   };
 
   const success = data?.status === 'completed' || data?.status === 'paid';
-  const title = success ? 'Payment Successful!' : (error ? 'Payment Not Found' : 'Processing...');
+  const pending = data?.status === 'pending';
+  const title = success ? 'Payment Successful!' : (pending ? 'Processing...' : (error ? 'Payment Not Found' : 'Processing...'));
+
+  const [retrying, setRetrying] = useState(false);
+  const retry = () => {
+    setRetrying(true);
+    window.location.reload();
+  };
+
+  const iconType = success ? 'check' : (pending ? 'clock' : (error ? 'x' : 'clock'));
   const icon = success ? 'check' : (error ? 'x' : 'clock');
 
   return (
@@ -75,10 +84,15 @@ function PaymentSuccessContent() {
 
         <div className="relative bg-white/90 backdrop-blur-xl border border-white/60 rounded-[32px] shadow-2xl p-8 md:p-10 animate-fade-in-up">
           <div className="text-center">
-            <div className={`w-20 h-20 mx-auto mb-6 rounded-[24px] border-2 flex items-center justify-center shadow-lg ${success ? 'bg-gradient-to-br from-[#f0fdf4] to-[#dcfce7] border-[#bbf7d0] shadow-[#10b981]/10' : 'bg-gradient-to-br from-[#fef2f2] to-[#fee2e2] border-[#fecaca] shadow-[#ef4444]/10'}`}>
-              {success ? (
+            <div className={`w-20 h-20 mx-auto mb-6 rounded-[24px] border-2 flex items-center justify-center shadow-lg ${success ? 'bg-gradient-to-br from-[#f0fdf4] to-[#dcfce7] border-[#bbf7d0] shadow-[#10b981]/10' : pending ? 'bg-gradient-to-br from-[#fffbeb] to-[#fef3c7] border-[#fde68a] shadow-[#f59e0b]/10' : 'bg-gradient-to-br from-[#fef2f2] to-[#fee2e2] border-[#fecaca] shadow-[#ef4444]/10'}`}>
+              {iconType === 'check' ? (
                 <svg className="w-10 h-10 text-[#166534]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : iconType === 'clock' ? (
+                <svg className="w-10 h-10 text-[#92400e]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
+                  <circle cx="12" cy="12" r="10" />
                 </svg>
               ) : (
                 <svg className="w-10 h-10 text-[#991b1b]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -90,7 +104,8 @@ function PaymentSuccessContent() {
             <h1 className="text-3xl font-black text-[var(--text-primary)] mb-2 tracking-tight">{title}</h1>
             <p className="text-[var(--text-secondary)] text-sm leading-relaxed mb-8 max-w-sm mx-auto">
               {success ? 'Your payment was processed successfully. Your subscription is now active.' :
-               error ? 'We could not find your payment details. Please check your email for the invoice.' :
+               pending ? 'Your payment is confirmed. Your subscription will activate in a moment.' :
+               error ? 'We could not find your payment details yet. It may still be processing.' :
                'Your payment is being processed. This page will update automatically.'}
             </p>
 
@@ -161,6 +176,19 @@ function PaymentSuccessContent() {
               </div>
             )}
 
+            {error && (
+              <div className="flex flex-col gap-3 mt-6">
+                <button onClick={retry} disabled={retrying} className="btn-primary w-full justify-center text-base py-3">
+                  {retrying ? (
+                    <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Retrying...</>
+                  ) : (
+                    <><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg> Retry</>
+                  )}
+                </button>
+              </div>
+            )}
             <Link
               href="/"
               className="btn-primary w-full justify-center text-base py-3"
