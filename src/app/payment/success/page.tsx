@@ -72,7 +72,7 @@ function PaymentSuccessContent() {
     window.location.reload();
   };
 
-  const iconType = success ? 'check' : (pending ? 'clock' : (error ? 'x' : 'clock'));
+  const iconType = success ? 'check' : (pending ? 'clock' : (error ? '✓' : 'clock'));
   const icon = success ? 'check' : (error ? '✓' : 'clock');
 
   return (
