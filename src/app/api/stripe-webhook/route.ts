@@ -49,10 +49,30 @@ export async function POST(req: NextRequest) {
     const planName = meta.plan_name ?? 'Subscription';
     const amount = session.amount_total ? session.amount_total / 100 : 0;
     const durationMonths = parseInt(meta.duration_months || '1', 10);
+    const existingSubId = meta.subscription_id;
+
+    // Cancel any other active subscriptions for this instructor
+    if (instructorId) {
+      const { data: active } = await admin
+        .from('instructor_subscriptions')
+        .select('id')
+        .eq('instructor_id', instructorId)
+        .eq('status', 'active');
+      if (active && active.length > 0) {
+        const exclude = existingSubId ? [existingSubId] : [];
+        const ids = active
+          .map((s: { id: string }) => s.id)
+          .filter((id: string) => !exclude.includes(id));
+        if (ids.length > 0) {
+          await admin.from('instructor_subscriptions')
+            .update({ status: 'cancelled' })
+            .in('id', ids);
+        }
+      }
+    }
 
     // Try to update existing pending records from metadata first
     const existingPaymentId = meta.payment_id;
-    const existingSubId = meta.subscription_id;
 
     if (existingPaymentId && existingSubId) {
       // Update existing pending records

@@ -35,7 +35,7 @@ export default function AuthCallbackPage() {
           if (s2) {
             router.replace('/');
           } else {
-            router.replace('/auth/instructor/login?message=Email+verified.+Please+log+in.');
+            router.replace('/');
           }
         }, 1500);
       }

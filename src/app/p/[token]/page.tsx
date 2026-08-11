@@ -190,11 +190,6 @@ export default function PupilStatusPage({ params }: { params: { token: string } 
               <li>Select <strong>"I'm a Pupil"</strong></li>
               <li>Sign up using your email: <br/><strong className="ml-5 bg-white px-2 py-0.5 rounded border border-[#bbf7d0] mt-1 inline-block">{data!.email}</strong></li>
             </ol>
-            <div className="mt-4 text-center">
-               <Link href="/auth/pupil/login" className="btn-primary w-full text-center">
-                 Go to Web Login
-               </Link>
-            </div>
           </div>
         )}
 

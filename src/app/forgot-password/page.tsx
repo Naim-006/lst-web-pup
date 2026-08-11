@@ -17,7 +17,7 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/reset-password`,
+        redirectTo: `${window.location.origin}/reset-password`,
       });
       if (resetError) throw resetError;
       setSent(true);
@@ -51,8 +51,8 @@ export default function ForgotPasswordPage() {
                 If <strong>{email}</strong> is registered, you'll receive a reset link shortly. Check your inbox and spam folder.
               </span>
             </div>
-            <Link href="/auth/instructor/login" className="btn-primary w-full block">
-              Back to Login
+            <Link href="/" className="btn-primary w-full block">
+              Back to Home
             </Link>
           </div>
         ) : (
@@ -75,8 +75,8 @@ export default function ForgotPasswordPage() {
               </button>
             </form>
             <p className="text-center text-sm text-[var(--text-muted)] mt-6">
-              Remembered your password?{' '}
-              <Link href="/auth/instructor/login" className="text-[var(--sunset)] font-semibold hover:underline">Sign in</Link>
+              Back to{' '}
+              <Link href="/" className="text-[var(--sunset)] font-semibold hover:underline">Home</Link>
             </p>
           </>
         )}

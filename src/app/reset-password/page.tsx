@@ -16,10 +16,18 @@ export default function ResetPasswordPage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    supabase.auth.onAuthStateChange(async (event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') setReady(true);
     });
-    if (window.location.hash?.includes('type=recovery')) setReady(true);
+
+    // supabase-js processes the recovery hash during module load and
+    // strips it from the URL, so the event above may already be missed.
+    // If a session exists we can safely show the form.
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) setReady(true);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {

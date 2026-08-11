@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: 'How do I reset my password?',
-    a: 'Go to the login screen and click "Forgot password?". Enter your email address and we\'ll send you a reset link.',
+    a: 'Open the reset password page, enter your email address, and we\'ll send you a reset link.',
   },
   {
     q: 'The app says my invite link has expired.',
@@ -45,28 +45,6 @@ export default function HelpPage() {
             <h1 className="text-2xl font-bold text-[var(--text-primary)]">Help & Support</h1>
             <p className="text-sm text-[var(--text-muted)]">Find answers or get in touch</p>
           </div>
-        </div>
-
-        {/* Quick Contact */}
-        <div className="grid grid-cols-2 gap-4 mb-10">
-          <a
-            href="https://wa.me/8801984862536"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-5 bg-[#f0fdf4] rounded-2xl border border-[#bbf7d0] text-center hover:bg-[#dcfce7] transition-all hover:-translate-y-0.5"
-          >
-            <div className="text-3xl mb-2">💬</div>
-            <p className="text-[15px] font-bold text-[#166534]">WhatsApp</p>
-            <p className="text-xs text-[#15803d]">Instant reply</p>
-          </a>
-          <a
-            href="tel:+8801984862536"
-            className="p-5 bg-[var(--sunset-light)] rounded-2xl border border-[var(--sunset)] opacity-80 text-center hover:opacity-100 transition-all hover:-translate-y-0.5"
-          >
-            <div className="text-3xl mb-2">📞</div>
-            <p className="text-[15px] font-bold text-[var(--sunset-dark)]">Call Us</p>
-            <p className="text-xs text-[var(--sunset)]">+880 1984-862536</p>
-          </a>
         </div>
 
         {/* FAQ */}

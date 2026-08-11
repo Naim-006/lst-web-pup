@@ -341,3 +341,47 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   height: 1px;
   background: var(--border);
 }
+
+/* ─── Confetti Animation ────────────────────────────────────── */
+@keyframes confetti-fall {
+  0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+}
+
+.confetti-piece {
+  position: fixed;
+  width: 10px;
+  height: 10px;
+  top: -10px;
+  z-index: 9999;
+  pointer-events: none;
+  animation: confetti-fall linear forwards;
+}
+
+.confetti-piece:nth-child(1) { left: 10%; width: 8px; height: 8px; background: #f3751f; animation-duration: 3.2s; animation-delay: 0s; }
+.confetti-piece:nth-child(2) { left: 20%; width: 6px; height: 6px; background: #10b981; animation-duration: 2.8s; animation-delay: 0.15s; }
+.confetti-piece:nth-child(3) { left: 30%; width: 10px; height: 10px; background: #3b82f6; animation-duration: 3.5s; animation-delay: 0.3s; }
+.confetti-piece:nth-child(4) { left: 40%; width: 7px; height: 7px; background: #8b5cf6; animation-duration: 2.6s; animation-delay: 0.1s; }
+.confetti-piece:nth-child(5) { left: 50%; width: 9px; height: 9px; background: #fbbf24; animation-duration: 3s; animation-delay: 0.4s; }
+.confetti-piece:nth-child(6) { left: 60%; width: 6px; height: 6px; background: #ef4444; animation-duration: 3.8s; animation-delay: 0.2s; }
+.confetti-piece:nth-child(7) { left: 70%; width: 11px; height: 11px; background: #f3751f; animation-duration: 2.9s; animation-delay: 0.35s; }
+.confetti-piece:nth-child(8) { left: 80%; width: 7px; height: 7px; background: #10b981; animation-duration: 3.3s; animation-delay: 0.05s; }
+.confetti-piece:nth-child(9) { left: 90%; width: 8px; height: 8px; background: #3b82f6; animation-duration: 3.1s; animation-delay: 0.25s; }
+.confetti-piece:nth-child(10) { left: 15%; width: 5px; height: 5px; background: #fbbf24; animation-duration: 3.6s; animation-delay: 0.45s; }
+.confetti-piece:nth-child(11) { left: 35%; width: 12px; height: 12px; background: #8b5cf6; animation-duration: 2.7s; animation-delay: 0.12s; }
+.confetti-piece:nth-child(12) { left: 55%; width: 6px; height: 6px; background: #ef4444; animation-duration: 3.4s; animation-delay: 0.28s; }
+
+/* ─── Payment Success Gradient ──────────────────────────────── */
+.payment-success-glow {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(243,117,31,0.1) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 100%, rgba(16,185,129,0.06) 0%, transparent 50%),
+    var(--bg);
+}
+
+.payment-cancelled-glow {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(239,68,68,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 100%, rgba(243,117,31,0.04) 0%, transparent 50%),
+    var(--bg);
+}
