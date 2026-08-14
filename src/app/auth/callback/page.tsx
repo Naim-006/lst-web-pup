@@ -1,46 +1,45 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
+  const handled = useRef(false);
 
   useEffect(() => {
-    // Supabase JS v2 automatically handles the token from the URL hash.
-    // We just need to wait briefly and then check session state.
+    // If this is a password recovery link, send the user to the reset page.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY' && !handled.current) {
+        handled.current = true;
+        router.replace('/reset-password');
+      }
+    });
+
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
+      if (handled.current) return;
+      handled.current = true;
       if (session) {
-        // Redirect based on role
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .single();
-
-        if (profile?.role === 'admin') {
-          router.replace('/');
-        } else if (profile?.role === 'instructor') {
-          router.replace('/');
-        } else {
-          router.replace('/');
-        }
+        // Email confirmed (or already signed in) – show the confirmation page.
+        router.replace('/verify-email');
       } else {
         // No session – might be a magic link / email confirmation
         // Wait a moment for SDK to process the URL hash
         setTimeout(async () => {
           const { data: { session: s2 } } = await supabase.auth.getSession();
           if (s2) {
-            router.replace('/');
+            router.replace('/verify-email');
           } else {
-            router.replace('/');
+            router.replace('/verify-email?error=invalid');
           }
         }, 1500);
       }
     };
     checkSession();
+
+    return () => subscription.unsubscribe();
   }, [router]);
 
   return (

@@ -16,8 +16,9 @@ export default function ForgotPasswordPage() {
     if (!email.includes('@')) { setError('Please enter a valid email address.'); return; }
     setLoading(true);
     try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: `${appUrl.replace(/\/$/, '')}/reset-password`,
       });
       if (resetError) throw resetError;
       setSent(true);

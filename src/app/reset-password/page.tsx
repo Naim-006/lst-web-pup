@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
@@ -14,20 +14,40 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [ready, setReady] = useState(false);
+  const validLink = useRef(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setReady(true);
+      if (event === 'PASSWORD_RECOVERY') {
+        validLink.current = true;
+        setReady(true);
+      }
     });
 
     // supabase-js processes the recovery hash during module load and
     // strips it from the URL, so the event above may already be missed.
     // If a session exists we can safely show the form.
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) setReady(true);
-    });
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        validLink.current = true;
+        setReady(true);
+      }
+    };
+    checkSession();
 
-    return () => subscription.unsubscribe();
+    // Never leave the user on the "Verifying reset link…" spinner forever.
+    const failTimer = setTimeout(() => {
+      setReady(true);
+      if (!validLink.current) {
+        setError('This reset link is invalid or has expired. Please request a new one.');
+      }
+    }, 5000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(failTimer);
+    };
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
