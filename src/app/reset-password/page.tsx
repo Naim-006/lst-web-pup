@@ -38,6 +38,16 @@ export default function ResetPasswordPage() {
     const checkSession = async () => {
       const params = new URLSearchParams(window.location.search);
       const tokenHash = params.get('token_hash');
+      const code = params.get('code');
+
+      if (code) {
+        // PKCE-style code issued by Supabase's hosted verify page (used when
+        // the email was initiated from a PKCE client). Exchange it explicitly.
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (!error && data.session) markValid();
+        else setReady(true);
+        return;
+      }
 
       if (tokenHash) {
         // New-style recovery links carry the token in the query string; the

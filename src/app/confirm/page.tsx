@@ -18,10 +18,16 @@ export default function ConfirmEmailPage() {
       const params = new URLSearchParams(window.location.search);
       const tokenHash = params.get('token_hash');
       const type = params.get('type');
+      const code = params.get('code');
 
       let session = null;
 
-      if (tokenHash) {
+      if (code) {
+        // PKCE-style code issued by Supabase's hosted verify page (used when the
+        // email was initiated from a PKCE client). Exchange it explicitly.
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (!error) session = data.session;
+      } else if (tokenHash) {
         // New-style confirmation links carry the token in the query string.
         // The SDK does not auto-exchange these, so verify it explicitly.
         const { data, error } = await supabase.auth.verifyOtp({
