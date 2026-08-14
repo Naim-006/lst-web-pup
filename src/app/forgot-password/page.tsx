@@ -16,9 +16,9 @@ export default function ForgotPasswordPage() {
     if (!email.includes('@')) { setError('Please enter a valid email address.'); return; }
     setLoading(true);
     try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://lessontrackerpro.vercel.app').replace(/\/$/, '');
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${appUrl.replace(/\/$/, '')}/reset-password`,
+        redirectTo: `${appUrl}/reset-password`,
       });
       if (resetError) throw resetError;
       setSent(true);

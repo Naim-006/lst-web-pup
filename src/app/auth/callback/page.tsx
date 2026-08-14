@@ -23,16 +23,16 @@ export default function AuthCallbackPage() {
       handled.current = true;
       if (session) {
         // Email confirmed (or already signed in) – show the confirmation page.
-        router.replace('/verify-email');
+        router.replace('/confirm');
       } else {
         // No session – might be a magic link / email confirmation
         // Wait a moment for SDK to process the URL hash
         setTimeout(async () => {
           const { data: { session: s2 } } = await supabase.auth.getSession();
           if (s2) {
-            router.replace('/verify-email');
+            router.replace('/confirm');
           } else {
-            router.replace('/verify-email?error=invalid');
+            router.replace('/confirm?error=invalid');
           }
         }, 1500);
       }
