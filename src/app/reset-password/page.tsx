@@ -17,24 +17,11 @@ export default function ResetPasswordPage() {
   const validLink = useRef(false);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        validLink.current = true;
-        setReady(true);
-      }
-    });
-
-    // supabase-js processes the recovery hash during module load and
-    // strips it from the URL, so the event above may already be missed.
-    // If a session exists we can safely show the form.
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        validLink.current = true;
-        setReady(true);
-      }
+    const markValid = () => {
+      validLink.current = true;
+      clearTimeout(failTimer);
+      setReady(true);
     };
-    checkSession();
 
     // Never leave the user on the "Verifying reset link…" spinner forever.
     const failTimer = setTimeout(() => {
@@ -43,6 +30,34 @@ export default function ResetPasswordPage() {
         setError('This reset link is invalid or has expired. Please request a new one.');
       }
     }, 5000);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') markValid();
+    });
+
+    const checkSession = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get('token_hash');
+
+      if (tokenHash) {
+        // New-style recovery links carry the token in the query string; the
+        // SDK does not auto-exchange it, so verify it explicitly.
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: 'recovery',
+        });
+        if (!error) markValid();
+        else setReady(true);
+        return;
+      }
+
+      // Legacy links: supabase-js processes the recovery hash during module
+      // load and strips it from the URL, so the event above may be missed.
+      // If a session exists we can safely show the form.
+      const { data } = await supabase.auth.getSession();
+      if (data.session) markValid();
+    };
+    checkSession();
 
     return () => {
       subscription.unsubscribe();

@@ -15,13 +15,28 @@ export default function ConfirmEmailPage() {
       if (fired.current) return;
       fired.current = true;
 
-      // supabase-js exchanges the confirmation token from the URL hash
-      // during module load, so give it a moment before reading the session.
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get('token_hash');
+      const type = params.get('type');
+
       let session = null;
-      for (let i = 0; i < 5; i++) {
-        await new Promise((r) => setTimeout(r, 400));
-        const { data } = await supabase.auth.getSession();
-        if (data.session) { session = data.session; break; }
+
+      if (tokenHash) {
+        // New-style confirmation links carry the token in the query string.
+        // The SDK does not auto-exchange these, so verify it explicitly.
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: (type ?? 'email') as Parameters<typeof supabase.auth.verifyOtp>[0]['type'],
+        });
+        if (!error) session = data.session;
+      } else {
+        // Legacy links put tokens in the URL fragment; the SDK exchanges them
+        // during module load, so give it a moment before reading the session.
+        for (let i = 0; i < 5; i++) {
+          await new Promise((r) => setTimeout(r, 400));
+          const { data } = await supabase.auth.getSession();
+          if (data.session) { session = data.session; break; }
+        }
       }
 
       if (session?.user?.email_confirmed_at) {
