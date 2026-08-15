@@ -124,7 +124,7 @@ export default function HomePage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up animate-delay-100">
             <Link href="/contact" className="btn-primary px-8 py-3.5 text-lg w-full sm:w-auto">Get in Touch</Link>
-            <a href="#features" className="btn-secondary px-8 py-3.5 text-lg w-full sm:w-auto">Explore the App</a>
+            <a href="https://play.google.com/store/apps/details?id=com.lessontrackerpro.lesson_tracker_pro&pcampaignid=web_share">Explore the App</a>
           </div>
         </div>
       </section>
