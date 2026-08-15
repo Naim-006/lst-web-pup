@@ -70,12 +70,14 @@ export async function activateSubscription(
     end_date: end.toISOString(),
   }).eq('id', input.subscriptionId);
 
-  // Only one current plan at a time.
+  // Only one current plan at a time. Also clear any older revoked/rejected
+  // rows so a newly purchased subscription takes over and the user is no
+  // longer blocked by a stale state.
   await admin.from('instructor_subscriptions')
     .update({ status: 'cancelled' })
     .eq('instructor_id', input.instructorId)
     .neq('id', input.subscriptionId)
-    .eq('status', 'active');
+    .in('status', ['active', 'revoked', 'rejected']);
 
   if (input.paymentId) {
     await markPaymentCompleted(admin, input.paymentId, input.stripeSessionId);
@@ -118,7 +120,7 @@ export async function createActiveSubscription(
       .update({ status: 'cancelled' })
       .eq('instructor_id', input.instructorId)
       .neq('id', data.id)
-      .eq('status', 'active');
+      .in('status', ['active', 'revoked', 'rejected']);
   }
 
   return data ? { id: data.id } : null;
