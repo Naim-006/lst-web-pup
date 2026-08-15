@@ -69,8 +69,11 @@ function PaymentSuccessContent() {
         res = json;
       } catch (e) {
         if (stopped) return;
-        if (Date.now() - started > 15000) {
-          setView({ kind: 'failed', data: null, message: 'We could not verify your payment. Please try refreshing.' });
+        // A failed /api/payment fetch is not proof the payment failed. Keep
+        // polling until the 90s timeout so a slow webhook or DB hiccup never
+        // shows a false "not verified" state; the timeout view offers Refresh.
+        if (Date.now() - started > 90000) {
+          setView({ kind: 'timeout', data: null });
           stopped = true;
           return;
         }
@@ -81,11 +84,16 @@ function PaymentSuccessContent() {
 
       const current = res as PaymentData;
       const subActive = current.subscription?.status === 'active';
-      const payCompleted = current.status === 'completed' || current.status === 'paid';
+      const payCompleted =
+        current.status === 'completed' || current.status === 'paid'
+        || current.subscription?.payment_status === 'completed'
+        || current.subscription?.payment_status === 'paid';
       const payFailed = current.status === 'failed' || current.subscription?.status === 'rejected';
       const payPending = current.status === 'pending';
 
-      if (subActive) {
+      // The payment being confirmed (Stripe has the money) is a success even
+      // if the webhook hasn't flipped the subscription row to 'active' yet.
+      if (subActive || payCompleted) {
         setView({ kind: 'success', data: current });
         stopped = true;
         return;
@@ -114,7 +122,13 @@ function PaymentSuccessContent() {
           .then(r => r.json())
           .then(confirmRes => {
             if (stopped) return;
-            if (confirmRes?.subscription?.status === 'active') {
+            const confirmed =
+              confirmRes?.subscription?.status === 'active'
+              || confirmRes?.subscription?.payment_status === 'completed'
+              || confirmRes?.subscription?.payment_status === 'paid'
+              || confirmRes?.payment?.status === 'completed'
+              || confirmRes?.payment?.status === 'paid';
+            if (confirmed) {
               setView({ kind: 'success', data: { ...current, subscription: confirmRes.subscription } });
               stopped = true;
             } else if (confirmRes?.payment?.status === 'failed') {
