@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { activateSubscription, createActiveSubscription } from '@/lib/activateSubscription';
 
 export async function POST(req: NextRequest) {
   const admin = getSupabaseAdmin();
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
     .single();
 
   const config = (configRow?.value as Record<string, unknown>) ?? {};
-  const webhookSecret = config['webhook_secret'] as string;
+  const webhookSecret = config['stripe_webhook_secret'] as string;
 
   const body = await req.text();
   const sig = req.headers.get('stripe-signature') || '';
@@ -44,76 +45,56 @@ export async function POST(req: NextRequest) {
     const session = event.data.object;
     const meta = session.metadata ?? {};
     const sessionId = session.id as string;
+    const subscriptionId = meta.subscription_id;
+    const paymentId = meta.payment_id;
     const instructorId = meta.instructor_id;
     const planId = meta.plan_id;
     const planName = meta.plan_name ?? 'Subscription';
+    const durationMonths = Number(meta.duration_months) || 1;
     const amount = session.amount_total ? session.amount_total / 100 : 0;
-    const durationMonths = parseInt(meta.duration_months || '1', 10);
-    const existingSubId = meta.subscription_id;
 
-    // Cancel any other active subscriptions for this instructor
-    if (instructorId) {
-      const { data: active } = await admin
-        .from('instructor_subscriptions')
-        .select('id')
-        .eq('instructor_id', instructorId)
-        .eq('status', 'active');
-      if (active && active.length > 0) {
-        const exclude = existingSubId ? [existingSubId] : [];
-        const ids = active
-          .map((s: { id: string }) => s.id)
-          .filter((id: string) => !exclude.includes(id));
-        if (ids.length > 0) {
-          await admin.from('instructor_subscriptions')
-            .update({ status: 'cancelled' })
-            .in('id', ids);
-        }
+    // Payment was confirmed by Stripe. Activate the subscription so the
+    // instructor gets access automatically. Idempotent: an already-active
+    // subscription is left untouched.
+
+    if (subscriptionId && instructorId) {
+      await activateSubscription(admin, {
+        subscriptionId,
+        instructorId,
+        durationMonths,
+        paymentId,
+        stripeSessionId: sessionId,
+      });
+    } else if (instructorId && planId) {
+      // Legacy fallback: create an active subscription from plan metadata.
+      const sub = await createActiveSubscription(admin, {
+        instructorId,
+        planId,
+        planName,
+        durationMonths,
+        amount,
+      });
+      if (sub && paymentId) {
+        await admin.from('instructor_payments').update({
+          status: 'completed',
+          payment_date: new Date().toISOString(),
+          subscription_id: sub.id,
+          stripe_session_id: sessionId,
+        }).eq('id', paymentId);
       }
-    }
-
-    // Try to update existing pending records from metadata first
-    const existingPaymentId = meta.payment_id;
-
-    if (existingPaymentId && existingSubId) {
-      // Update existing pending records
-      const now = new Date();
-      const endDate = new Date(now);
-      endDate.setMonth(endDate.getMonth() + durationMonths);
-
-      await admin.from('instructor_subscriptions').update({
-        payment_status: 'completed',
-        end_date: endDate.toISOString(),
-        status: 'active',
-      }).eq('id', existingSubId);
-
+    } else if (paymentId) {
+      // Payment without plan metadata: record the money only.
       await admin.from('instructor_payments').update({
         status: 'completed',
         stripe_session_id: sessionId,
-        payment_date: now.toISOString(),
-      }).eq('id', existingPaymentId);
+        payment_date: new Date().toISOString(),
+      }).eq('id', paymentId);
     } else if (instructorId) {
-      // Fallback: create new records (legacy flow)
-      const now = new Date();
-      const endDate = new Date(now);
-      endDate.setMonth(endDate.getMonth() + durationMonths);
-
-      const { data: sub } = await admin.from('instructor_subscriptions').insert({
-        instructor_id: instructorId,
-        plan_id: planId || null,
-        plan_type: planName,
-        amount: amount,
-        start_date: now.toISOString(),
-        end_date: endDate.toISOString(),
-        status: 'active',
-        payment_status: 'paid',
-      }).select('id').single();
-
-      const txnId = `TXN-${now.toISOString().slice(2,10).replace(/-/g,'')}-${Math.random().toString(36).slice(2,6).toUpperCase()}`
+      const txnId = `TXN-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.random().toString(36).slice(2,6).toUpperCase()}`
       await admin.from('instructor_payments').insert({
         instructor_id: instructorId,
-        subscription_id: sub?.id ?? null,
         amount: amount,
-        payment_date: now.toISOString(),
+        payment_date: new Date().toISOString(),
         status: 'completed',
         payment_method: 'stripe',
         stripe_session_id: sessionId,
