@@ -124,7 +124,7 @@ export default function HomePage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up animate-delay-100">
             <Link href="/contact" className="btn-primary px-8 py-3.5 text-lg w-full sm:w-auto">Get in Touch</Link>
-            <a href="https://lessontrackerpro.vercel.app/confirm?code=50fc1131-d273-4cd3-a527-8b97390ba103" className="btn-secondary px-8 py-3.5 text-lg w-full sm:w-auto">Explore the App</a>
+            <a href="https://play.google.com/store/apps/details?id=com.lessontrackerpro.lesson_tracker_pro&pcampaignid=web_share" className="btn-secondary px-8 py-3.5 text-lg w-full sm:w-auto">Explore the App</a>
           </div>
         </div>
       </section>
