@@ -5,13 +5,16 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 type PaymentData = {
+  id?: string;
   amount: number;
   description: string;
   status: string;
   payment_method: string;
   payment_date: string;
+  txn_id?: string;
   instructor: { name: string; email: string } | null;
   subscription: {
+    plan_id?: string;
     plan_type: string;
     status: string;
     start_date: string;
@@ -27,6 +30,75 @@ type View =
   | { kind: 'processing'; data: PaymentData }
   | { kind: 'timeout'; data: PaymentData | null }
   | { kind: 'failed'; data: PaymentData | null; message: string };
+
+function fmtDate(iso?: string): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c as string]) as string,
+  );
+}
+
+/** Builds a printable invoice (transaction/payment ID + payment details) and
+ *  triggers a browser download so the caller can save / open as PDF. */
+function downloadInvoice(data: PaymentData) {
+  const id = data.id || '';
+  const txn = data.txn_id || `TXN-${data.payment_date ? new Date(data.payment_date).getTime() : Date.now()}`;
+  const plan = data.subscription?.plan_type || data.description || 'Subscription';
+  const lineItems = [
+    ['Plan', plan],
+    ['Amount', `\u00a3${data.amount.toFixed(2)}`],
+    ['Transaction ID', txn],
+    ['Payment ID', id],
+    ['Method', data.payment_method || 'Stripe'],
+    ['Paid on', fmtDate(data.payment_date) || '—'],
+  ];
+  if (data.subscription?.start_date) lineItems.push(['Valid from', fmtDate(data.subscription.start_date)]);
+  if (data.subscription?.end_date) lineItems.push(['Valid until', fmtDate(data.subscription.end_date)]);
+
+  const rows = lineItems
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:10px 0;color:#666;">${escapeHtml(k)}</td>` +
+        `<td style="padding:10px 0;text-align:right;font-weight:600;color:#1b2a20;">${escapeHtml(v)}</td></tr>`,
+    )
+    .join('');
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(txn)}</title></head>
+<body style="font-family:Arial,Helvetica,sans-serif;color:#1b2a20;margin:0;padding:0;">
+  <div style="background:linear-gradient(135deg,#FF6B35,#E8451A);padding:34px;">
+    <h1 style="color:#fff;margin:0;font-size:22px;">Lesson Tracker Pro — Invoice</h1>
+    <p style="color:rgba(255,255,255,.85);margin:6px 0 0;font-size:13px;">Payment Confirmed</p>
+  </div>
+  <div style="padding:30px;">
+    <h2 style="font-size:16px;margin:0 0 6px;">${escapeHtml(plan)}</h2>
+    <p style="color:#666;font-size:13px;margin:0 0 16px;">Thank you — your subscription payment was processed successfully.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">${rows}</table>
+    <div style="border-top:1px solid #eee;margin-top:18px;padding-top:14px;">
+      <p style="font-size:13px;color:#666;margin:0;">Paid via Stripe.</p>
+      <p style="font-size:12px;color:#999;margin:10px 0 0;">For billing questions, contact support. This receipt was generated automatically.</p>
+    </div>
+  </div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `lesson-tracker-invoice-${txn}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export default function PaymentSuccessPage() {
   return (
@@ -189,6 +261,7 @@ function PaymentSuccessContent() {
 
   const data = (view as { data?: PaymentData | null }).data ?? null;
   const sub = data?.subscription;
+  const successData = view.kind === 'success' ? view.data : null;
   const showPlanDetails = success && sub && sub.start_date && sub.end_date;
 
   return (
@@ -282,10 +355,30 @@ function PaymentSuccessContent() {
                     </div>
                   </>
                 )}
+                {success && successData && (successData.txn_id || successData.id) && (
+                  <>
+                    <div className="border-t border-[var(--border)] my-3" />
+                    <div className="flex items-center justify-between py-2">
+                      <span className="text-sm font-medium text-[var(--text-secondary)]">Transaction ID</span>
+                      <span className="text-sm font-bold text-[var(--text-primary)]">{successData.txn_id || successData.id}</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
             <div className="flex flex-col gap-3">
+              {success && successData && (
+                <button
+                  onClick={() => downloadInvoice(successData)}
+                  className="btn-primary w-full justify-center text-base py-3"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" />
+                  </svg>
+                  Download Invoice
+                </button>
+              )}
               <Link
                 href="/"
                 className="btn-primary w-full justify-center text-base py-3"
@@ -293,7 +386,7 @@ function PaymentSuccessContent() {
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                 </svg>
-                Return Home
+                Return to App &amp; Enjoy
               </Link>
               {(activating || processing || timedOut) && (
                 <button

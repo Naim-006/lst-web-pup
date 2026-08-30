@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   if (data.subscription_id) {
     const { data: s } = await client
       .from('instructor_subscriptions')
-      .select('id, plan_type, status, start_date, end_date, payment_status, amount')
+      .select('id, plan_id, plan_type, status, start_date, end_date, payment_status, amount')
       .eq('id', data.subscription_id)
       .maybeSingle();
     subscription = s;
