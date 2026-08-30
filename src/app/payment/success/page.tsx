@@ -9,6 +9,8 @@ type PaymentData = {
   amount: number;
   description: string;
   status: string;
+  failure_reason?: string | null;
+  expires_at?: string | null;
   payment_method: string;
   payment_date: string;
   txn_id?: string;
@@ -115,10 +117,13 @@ function PaymentSuccessContent() {
       const current = res as PaymentData;
       const subActive = current.subscription?.status === 'active';
       const payCompleted =
-        current.status === 'completed' || current.status === 'paid'
+        current.status === 'completed' || current.status === 'paid' || current.status === 'succeeded'
         || current.subscription?.payment_status === 'completed'
-        || current.subscription?.payment_status === 'paid';
-      const payFailed = current.status === 'failed' || current.subscription?.status === 'rejected';
+        || current.subscription?.payment_status === 'paid'
+        || current.subscription?.payment_status === 'succeeded';
+      const payFailed =
+        current.status === 'failed' || current.status === 'expired' || current.status === 'cancelled'
+        || current.subscription?.status === 'rejected';
       const payPending = current.status === 'pending';
 
       // The payment being confirmed (Stripe has the money) is a success even
@@ -129,7 +134,11 @@ function PaymentSuccessContent() {
         return;
       }
       if (payFailed) {
-        setView({ kind: 'failed', data: current, message: 'Your payment could not be confirmed.' });
+        setView({ kind: 'failed', data: current, message: current.status === 'expired'
+          ? 'Your payment window (1 hour) expired before the payment was completed. Please try again with "Pay Again" in the app.'
+          : current.status === 'cancelled'
+            ? 'This payment attempt was replaced by a newer checkout. Please check the latest attempt ("Pay Again" in the app).'
+            : (current.failure_reason ? `Your payment could not be confirmed: ${current.failure_reason}` : 'Your payment could not be confirmed. Please try again with "Pay Again" in the app.') });
         stopped = true;
         return;
       }
@@ -158,13 +167,15 @@ function PaymentSuccessContent() {
               confirmRes?.subscription?.status === 'active'
               || confirmRes?.subscription?.payment_status === 'completed'
               || confirmRes?.subscription?.payment_status === 'paid'
+              || confirmRes?.subscription?.payment_status === 'succeeded'
               || confirmRes?.payment?.status === 'completed'
-              || confirmRes?.payment?.status === 'paid';
+              || confirmRes?.payment?.status === 'paid'
+              || confirmRes?.payment?.status === 'succeeded';
             if (confirmed) {
               setView({ kind: 'success', data: { ...current, subscription: confirmRes.subscription } });
               stopped = true;
-            } else if (confirmRes?.payment?.status === 'failed') {
-              setView({ kind: 'failed', data: current, message: confirmRes?.message || 'Your payment could not be confirmed.' });
+            } else if (['failed', 'expired', 'cancelled'].includes(confirmRes?.payment?.status)) {
+              setView({ kind: 'failed', data: current, message: confirmRes?.message || 'Your payment could not be confirmed. Please try again with "Pay Again" in the app.' });
               stopped = true;
             }
           })
@@ -265,7 +276,8 @@ function PaymentSuccessContent() {
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm font-medium text-[var(--text-secondary)]">Status</span>
                   <span className={`badge ${success ? 'badge-green' : 'badge-gray'}`}>
-                    {success ? 'Active' : data.status === 'completed' || data.status === 'paid' ? 'Payment received' : data.status}
+                    {success ? 'Active' : data.status === 'completed' || data.status === 'paid' || data.status === 'succeeded' ? 'Payment received'
+                      : data.status === 'expired' ? 'Payment window expired' : data.status}
                   </span>
                 </div>
                 <div className="border-t border-[var(--border)] my-3" />

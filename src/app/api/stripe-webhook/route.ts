@@ -73,6 +73,30 @@ export async function POST(req: NextRequest) {
   const planName = meta.plan_name ?? 'Subscription';
   const durationMonths = Number(meta.duration_months) || 1;
   const amount = session.amount_total ? session.amount_total / 100 : 0;
+  const paymentIntentId = (session.payment_intent as string) || undefined;
+
+  // Server-side expiry sweep: any pending attempt whose 60-minute window has
+  // passed is expired (never an eternal "pending"), even if the Stripe
+  // session-expired event was never delivered.
+  {
+    const { data: stalePays } = await admin
+      .from('instructor_payments')
+      .select('id, subscription_id')
+      .eq('status', 'pending')
+      .lt('expires_at', new Date().toISOString());
+    for (const p of stalePays ?? []) {
+      await admin.from('instructor_payments')
+        .update({ status: 'expired', failure_reason: 'Payment window (1 hour) expired' })
+        .eq('id', p.id)
+        .eq('status', 'pending');
+      if (p.subscription_id) {
+        await admin.from('instructor_subscriptions')
+          .update({ status: 'rejected', payment_status: 'expired' })
+          .eq('id', p.subscription_id)
+          .eq('status', 'pending');
+      }
+    }
+  }
 
   if (event.type === 'checkout.session.completed') {
     // NEVER activate from metadata alone: only when Stripe confirms the
@@ -81,20 +105,29 @@ export async function POST(req: NextRequest) {
     const amountTotal = session.amount_total ? session.amount_total / 100 : 0;
 
     let expectedAmount: number | null = null;
+    let paymentStatus: string | null = null;
     let instructorMatches = true;
     if (paymentId) {
       const { data: payRow } = await admin
         .from('instructor_payments')
-        .select('amount, instructor_id')
+        .select('amount, instructor_id, status')
         .eq('id', paymentId)
         .maybeSingle();
       if (payRow) {
         expectedAmount = Number(payRow.amount) ?? null;
+        paymentStatus = payRow.status as string | null;
         if (instructorId && payRow.instructor_id &&
             String(payRow.instructor_id) !== String(instructorId)) {
           instructorMatches = false;
         }
       }
+    }
+
+    // Superseded / expired / cancelled attempt: the instructor started a
+    // newer checkout after this one. Never activate the old one.
+    if (paymentStatus && paymentStatus !== 'pending') {
+      console.log('checkout completed for a superseded/closed attempt; skipping activation:', paymentId, paymentStatus);
+      return NextResponse.json({ received: true, activated: false, reason: 'superseded' });
     }
 
     if (!sessionPaid) {
@@ -110,8 +143,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Payment was confirmed by Stripe. Activate the subscription so the
-    // instructor gets access automatically. Idempotent: an already-active
-    // subscription is left untouched.
+    // instructor gets access automatically. Only still-pending attempts are
+    // activated (the helper guards that).
 
     if (subscriptionId && instructorId) {
       await activateSubscription(admin, {
@@ -120,6 +153,7 @@ export async function POST(req: NextRequest) {
         durationMonths,
         paymentId,
         stripeSessionId: sessionId,
+        paymentIntentId,
         amount,
       });
     } else if (instructorId && planId) {
@@ -133,28 +167,31 @@ export async function POST(req: NextRequest) {
       });
       if (sub && paymentId) {
         await admin.from('instructor_payments').update({
-          status: 'completed',
+          status: 'succeeded',
           payment_date: new Date().toISOString(),
           subscription_id: sub.id,
           stripe_session_id: sessionId,
-        }).eq('id', paymentId);
+          payment_intent_id: paymentIntentId,
+        }).eq('id', paymentId).eq('status', 'pending');
       }
     } else if (paymentId) {
       // Payment without plan metadata: record the money only.
       await admin.from('instructor_payments').update({
-        status: 'completed',
+        status: 'succeeded',
         stripe_session_id: sessionId,
+        payment_intent_id: paymentIntentId,
         payment_date: new Date().toISOString(),
-      }).eq('id', paymentId);
+      }).eq('id', paymentId).eq('status', 'pending');
     } else if (instructorId) {
       const txnId = `TXN-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.random().toString(36).slice(2,6).toUpperCase()}`
       await admin.from('instructor_payments').insert({
         instructor_id: instructorId,
         amount: amount,
         payment_date: new Date().toISOString(),
-        status: 'completed',
+        status: 'succeeded',
         payment_method: 'stripe',
         stripe_session_id: sessionId,
+        payment_intent_id: paymentIntentId,
         description: `Subscription payment - ${planName}`,
         txn_id: txnId,
       });
@@ -162,10 +199,27 @@ export async function POST(req: NextRequest) {
   }
 
   if (event.type === 'checkout.session.expired') {
-    // Abandoned checkout — mark pending records failed and reject the pending
-    // subscription so the app never grants access for an unpaid term.
+    // Abandoned checkout — the attempt itself expired.
     if (paymentId) {
-      await admin.from('instructor_payments').update({ status: 'failed' }).eq('id', paymentId);
+      await admin.from('instructor_payments')
+        .update({ status: 'expired', failure_reason: 'Checkout session expired' })
+        .eq('id', paymentId)
+        .eq('status', 'pending');
+    }
+    if (subscriptionId) {
+      await admin.from('instructor_subscriptions')
+        .update({ status: 'rejected', payment_status: 'expired' })
+        .eq('id', subscriptionId)
+        .eq('status', 'pending');
+    }
+  }
+
+  if (event.type === 'checkout.session.async_payment_failed') {
+    if (paymentId) {
+      await admin.from('instructor_payments')
+        .update({ status: 'failed', failure_reason: 'Payment could not be completed (card declined or payment method rejected)' })
+        .eq('id', paymentId)
+        .eq('status', 'pending');
     }
     if (subscriptionId) {
       await admin.from('instructor_subscriptions')
@@ -175,29 +229,41 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (event.type === 'checkout.session.async_payment_failed' ||
-      event.type === 'payment_intent.payment_failed') {
-    // Stripe explicitly reported the payment failed. Mark records failed so
-    // the app shows "Payment Failed" and the instructor keeps their previous
-    // plan. The subscription is rejected, never activated.
-    if (paymentId) {
-      await admin.from('instructor_payments').update({ status: 'failed' }).eq('id', paymentId);
-    }
-    if (subscriptionId) {
-      await admin.from('instructor_subscriptions')
-        .update({ status: 'rejected', payment_status: 'failed' })
-        .eq('id', subscriptionId)
-        .eq('status', 'pending');
+  // Card declines arrive as payment_intent.payment_failed (the checkout
+  // session stays open). Match the pending attempt by its payment intent.
+  if (event.type === 'payment_intent.payment_failed') {
+    const intent = event.data?.object ?? {};
+    const intentId = intent.id as string | undefined;
+    const failureReason = (intent.last_payment_error as Record<string, unknown> | null | undefined)
+      ?.message as string | undefined;
+    if (intentId) {
+      const { data: failedPay } = await admin
+        .from('instructor_payments')
+        .select('id, subscription_id')
+        .eq('payment_intent_id', intentId)
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (failedPay) {
+        await admin.from('instructor_payments')
+          .update({ status: 'failed', failure_reason: failureReason ?? 'Payment declined' })
+          .eq('id', failedPay.id)
+          .eq('status', 'pending');
+        if (failedPay.subscription_id) {
+          await admin.from('instructor_subscriptions')
+            .update({ status: 'rejected', payment_status: 'failed' })
+            .eq('id', failedPay.subscription_id)
+            .eq('status', 'pending');
+        }
+      }
     }
   }
 
-  // Opportunistic cleanup: expire pending rows older than 60 minutes for this
-  // instructor (the payment window) so abandoned checkouts fail instead of
-  // lingering in an indefinite pending state.
+  // Opportunistic cleanup: expire pending rows older than 1 hour for this
+  // instructor so abandoned checkouts cannot linger in a grace state.
   if (instructorId) {
     const staleCutoff = new Date(Date.now() - 60 * 60 * 1000);
     await admin.from('instructor_subscriptions')
-      .update({ status: 'rejected', payment_status: 'failed' })
+      .update({ status: 'rejected', payment_status: 'expired' })
       .eq('instructor_id', instructorId)
       .eq('status', 'pending')
       .lt('created_at', staleCutoff.toISOString());

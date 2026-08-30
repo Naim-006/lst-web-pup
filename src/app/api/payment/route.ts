@@ -31,14 +31,14 @@ export async function GET(req: NextRequest) {
   if (paymentId) {
     const { data: d, error } = await admin
       .from('instructor_payments')
-      .select('id, amount, description, status, payment_method, payment_date, txn_id, instructor_id, subscription_id')
+      .select('id, amount, description, status, failure_reason, expires_at, payment_method, payment_date, txn_id, instructor_id, subscription_id')
       .eq('id', paymentId)
       .maybeSingle();
     if (d) data = d;
   } else if (sessionId) {
     const { data: d, error } = await admin
       .from('instructor_payments')
-      .select('id, amount, description, status, payment_method, payment_date, txn_id, instructor_id, subscription_id')
+      .select('id, amount, description, status, failure_reason, expires_at, payment_method, payment_date, txn_id, instructor_id, subscription_id')
       .eq('stripe_session_id', sessionId)
       .maybeSingle();
     if (d) data = d;
@@ -71,6 +71,8 @@ export async function GET(req: NextRequest) {
     amount: data.amount,
     description: data.description,
     status: data.status,
+    failure_reason: data.failure_reason ?? null,
+    expires_at: data.expires_at ?? null,
     payment_method: data.payment_method,
     payment_date: data.payment_date,
     txn_id: data.txn_id,

@@ -4,6 +4,7 @@ export type ActivationResult = {
   activated: boolean;
   alreadyActive: boolean;
   subscription?: Record<string, unknown> | null;
+  skipped?: 'not_pending' | 'not_found';
 };
 
 export type ActivationInput = {
@@ -12,6 +13,7 @@ export type ActivationInput = {
   durationMonths: number;
   paymentId?: string;
   stripeSessionId?: string;
+  paymentIntentId?: string;
   amount?: number;
 };
 
@@ -19,23 +21,30 @@ async function markPaymentCompleted(
   admin: SupabaseClient,
   paymentId: string,
   stripeSessionId?: string,
+  paymentIntentId?: string,
 ): Promise<void> {
   const update: Record<string, unknown> = {
-    status: 'completed',
+    status: 'succeeded',
     payment_date: new Date().toISOString(),
   };
   if (stripeSessionId) {
     update.stripe_session_id = stripeSessionId;
   }
-  await admin.from('instructor_payments').update(update).eq('id', paymentId);
+  if (paymentIntentId) {
+    update.payment_intent_id = paymentIntentId;
+  }
+  // Only a still-pending attempt can become succeeded. A superseded or
+  // expired attempt is never resurrected by a late confirmation.
+  await admin.from('instructor_payments').update(update).eq('id', paymentId).eq('status', 'pending');
 }
 
 /**
  * Idempotent subscription activation shared by the Stripe webhook and the
- * payment-confirm route. Only activates a subscription that is not already
- * active. Grants a fresh period from now based on the plan duration, marks
- * the payment completed, and ends any other active subscription so only one
- * plan is current at a time.
+ * payment-confirm route. Only activates a subscription that is still PENDING
+ * (a superseded / expired / rejected attempt can never be brought back to
+ * life). Grants a fresh period from now based on the plan duration, marks the
+ * payment succeeded, and ends any other active subscription so only one plan
+ * is current at a time.
  */
 export async function activateSubscription(
   admin: SupabaseClient,
@@ -56,9 +65,15 @@ export async function activateSubscription(
 
   if (alreadyActive) {
     if (input.paymentId) {
-      await markPaymentCompleted(admin, input.paymentId, input.stripeSessionId);
+      await markPaymentCompleted(admin, input.paymentId, input.stripeSessionId, input.paymentIntentId);
     }
     return { activated: false, alreadyActive: true, subscription: sub };
+  }
+
+  // A non-pending subscription (superseded/cancelled/expired/rejected) must
+  // never be activated by this stale confirmation.
+  if (sub.status !== 'pending') {
+    return { activated: false, alreadyActive: false, subscription: sub, skipped: 'not_pending' };
   }
 
   const start = new Date();
@@ -70,13 +85,23 @@ export async function activateSubscription(
     ? new Date(sub.end_date as string)
     : new Date(start.getTime() + input.durationMonths * 30 * 24 * 60 * 60 * 1000);
 
-  await admin.from('instructor_subscriptions').update({
-    status: 'active',
-    payment_status: 'completed',
-    start_date: start.toISOString(),
-    end_date: end.toISOString(),
-    ...(typeof input.amount === 'number' ? { amount: input.amount } : {}),
-  }).eq('id', input.subscriptionId);
+  const { data: activated } = await admin.from('instructor_subscriptions')
+    .update({
+      status: 'active',
+      payment_status: 'succeeded',
+      start_date: start.toISOString(),
+      end_date: end.toISOString(),
+      ...(typeof input.amount === 'number' ? { amount: input.amount } : {}),
+    })
+    .eq('id', input.subscriptionId)
+    .eq('status', 'pending')
+    .select('*')
+    .maybeSingle();
+
+  if (!activated) {
+    // Race with a newer checkout already closing this attempt.
+    return { activated: false, alreadyActive: false, subscription: sub, skipped: 'not_pending' };
+  }
 
   // Only one current plan at a time. Also clear any older revoked/rejected
   // rows so a newly purchased subscription takes over and the user is no
@@ -88,10 +113,10 @@ export async function activateSubscription(
     .in('status', ['active', 'revoked', 'rejected']);
 
   if (input.paymentId) {
-    await markPaymentCompleted(admin, input.paymentId, input.stripeSessionId);
+    await markPaymentCompleted(admin, input.paymentId, input.stripeSessionId, input.paymentIntentId);
   }
 
-  return { activated: true, alreadyActive: false, subscription: sub };
+  return { activated: true, alreadyActive: false, subscription: activated };
 }
 
 /**
@@ -117,7 +142,7 @@ export async function createActiveSubscription(
     plan_type: input.planName ?? 'Subscription',
     amount: input.amount,
     status: 'active',
-    payment_status: 'completed',
+    payment_status: 'succeeded',
     start_date: start.toISOString(),
     end_date: end.toISOString(),
     auto_pay: false,
