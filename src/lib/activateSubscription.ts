@@ -61,7 +61,13 @@ export async function activateSubscription(
   }
 
   const start = new Date();
-  const end = new Date(start.getTime() + input.durationMonths * 30 * 24 * 60 * 60 * 1000);
+  // A plan switch keeps the provisional end date (rest of the already paid
+  // current term) that create-checkout-session set for it. Only a fresh
+  // purchase gets a brand-new full term from payment time.
+  const isSwitch = Boolean(sub.replaces_subscription_id);
+  const end = isSwitch && sub.end_date
+    ? new Date(sub.end_date as string)
+    : new Date(start.getTime() + input.durationMonths * 30 * 24 * 60 * 60 * 1000);
 
   await admin.from('instructor_subscriptions').update({
     status: 'active',
