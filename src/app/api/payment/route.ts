@@ -21,14 +21,14 @@ export async function GET(req: NextRequest) {
   if (paymentId) {
     const { data: d, error } = await client
       .from('instructor_payments')
-      .select('*')
+      .select('id, amount, description, status, payment_method, payment_date, txn_id, instructor_id, subscription_id')
       .eq('id', paymentId)
       .maybeSingle();
     if (d) data = d;
   } else if (sessionId) {
     const { data: d, error } = await client
       .from('instructor_payments')
-      .select('*')
+      .select('id, amount, description, status, payment_method, payment_date, txn_id, instructor_id, subscription_id')
       .eq('stripe_session_id', sessionId)
       .maybeSingle();
     if (d) data = d;
@@ -41,18 +41,11 @@ export async function GET(req: NextRequest) {
     }, { status: 404 });
   }
 
-  // Fetch profile and subscription separately to avoid FK issues
-  let profile = null;
+  // Only the payment's own (non-PII) fields are exposed. This route is
+  // unauthenticated by design (the instructor lands here right after Stripe
+  // Checkout, before signing back into the app), so never return the linked
+  // instructor's name/email or the raw Stripe session id.
   let subscription = null;
-
-  if (data.instructor_id) {
-    const { data: p } = await client
-      .from('profiles')
-      .select('full_name, email')
-      .eq('id', data.instructor_id)
-      .maybeSingle();
-    profile = p;
-  }
 
   if (data.subscription_id) {
     const { data: s } = await client
@@ -70,9 +63,7 @@ export async function GET(req: NextRequest) {
     status: data.status,
     payment_method: data.payment_method,
     payment_date: data.payment_date,
-    stripe_session_id: data.stripe_session_id,
     txn_id: data.txn_id,
-    instructor: profile,
     subscription,
   });
 }
