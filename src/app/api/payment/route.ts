@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase, getSupabaseAdmin } from '@/lib/supabase';
+import { getSupabaseAdmin } from '@/lib/supabase';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -10,23 +12,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Required: payment or session_id' }, { status: 400 });
   }
 
-  // Try admin client first, fallback to anon
-  let client = supabase;
+  // The status endpoint must read instructor_payments regardless of who is
+  // asking (the instructor has not signed in again yet after Stripe Checkout),
+  // so it MUST use the service-role client. Trying the anon client silently
+  // falls back to RLS-blocked reads and surfaces as a misleading 404.
+  let admin;
   try {
-    client = getSupabaseAdmin();
-  } catch { /* fallback to anon */ }
+    admin = getSupabaseAdmin();
+  } catch (err) {
+    return NextResponse.json(
+      { error: 'Server is not configured for payment verification. Contact support.' },
+      { status: 500 },
+    );
+  }
 
   let data: Record<string, unknown> | null = null;
 
   if (paymentId) {
-    const { data: d, error } = await client
+    const { data: d, error } = await admin
       .from('instructor_payments')
       .select('id, amount, description, status, payment_method, payment_date, txn_id, instructor_id, subscription_id')
       .eq('id', paymentId)
       .maybeSingle();
     if (d) data = d;
   } else if (sessionId) {
-    const { data: d, error } = await client
+    const { data: d, error } = await admin
       .from('instructor_payments')
       .select('id, amount, description, status, payment_method, payment_date, txn_id, instructor_id, subscription_id')
       .eq('stripe_session_id', sessionId)
@@ -48,7 +58,7 @@ export async function GET(req: NextRequest) {
   let subscription = null;
 
   if (data.subscription_id) {
-    const { data: s } = await client
+    const { data: s } = await admin
       .from('instructor_subscriptions')
       .select('id, plan_id, plan_type, status, start_date, end_date, payment_status, amount')
       .eq('id', data.subscription_id)

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { activateSubscription } from '@/lib/activateSubscription';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Secure re-confirmation for the payment success page.
  *
@@ -12,7 +14,16 @@ import { activateSubscription } from '@/lib/activateSubscription';
  * the same idempotent activation as the webhook.
  */
 export async function POST(req: NextRequest) {
-  const admin = getSupabaseAdmin();
+  let admin;
+  try {
+    admin = getSupabaseAdmin();
+  } catch {
+    return NextResponse.json(
+      { error: 'Payment service is not configured. Contact support.' },
+      { status: 500 },
+    );
+  }
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -43,6 +54,7 @@ export async function POST(req: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({
       error: 'Not yet verifiable',
+      message: 'Your payment has not reached Stripe yet. If you completed checkout, please refresh.',
       payment: { id: payment.id, status: payment.status },
     }, { status: 409 });
   }
@@ -55,7 +67,10 @@ export async function POST(req: NextRequest) {
   const config = (configRow?.value as Record<string, unknown>) ?? {};
   const stripeSecretKey = config['stripe_secret_key'] as string;
   if (!stripeSecretKey) {
-    return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Stripe is not configured', message: 'Payment settings are incomplete. Contact support.' },
+      { status: 500 },
+    );
   }
 
   // 3. Verify with Stripe directly.
@@ -75,15 +90,20 @@ export async function POST(req: NextRequest) {
   const meta = (session.metadata ?? {}) as Record<string, unknown>;
   const sessionPaid = session.payment_status === 'paid';
   const sessionComplete = session.status === 'complete' || session.status === 'paid';
+  const sessionExpired = session.status === 'expired';
   const metaPaymentMatches = !paymentId || meta.payment_id === paymentId;
   const metaInstructorMatches = !payment.instructor_id || meta.instructor_id === payment.instructor_id;
   const amountMatch = typeof session.amount_total === 'number'
     && Math.abs(session.amount_total / 100 - Number(payment.amount || 0)) < 0.01;
 
   if (!sessionPaid || !sessionComplete || !metaPaymentMatches || !metaInstructorMatches || !amountMatch) {
+    const failed = sessionExpired || !sessionPaid;
     return NextResponse.json({
       error: 'Payment not confirmed',
-      payment: { id: payment.id, status: payment.status },
+      message: failed
+        ? 'Your payment was not completed. Please start a new checkout.'
+        : 'We could not confirm your payment yet. Please refresh in a few seconds.',
+      payment: { id: payment.id, status: failed ? 'failed' : payment.status },
     }, { status: 409 });
   }
 
@@ -100,6 +120,13 @@ export async function POST(req: NextRequest) {
       paymentId: payment.id as string,
       stripeSessionId: sessionId,
     });
+  }
+
+  // Ensure the session id is stored on the payment row even if it was missing.
+  if (!payment.stripe_session_id && paymentId) {
+    await admin.from('instructor_payments')
+      .update({ stripe_session_id: sessionId })
+      .eq('id', payment.id);
   }
 
   // 5. Return current state.

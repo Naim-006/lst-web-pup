@@ -12,6 +12,7 @@ export type ActivationInput = {
   durationMonths: number;
   paymentId?: string;
   stripeSessionId?: string;
+  amount?: number;
 };
 
 async function markPaymentCompleted(
@@ -74,6 +75,7 @@ export async function activateSubscription(
     payment_status: 'completed',
     start_date: start.toISOString(),
     end_date: end.toISOString(),
+    ...(typeof input.amount === 'number' ? { amount: input.amount } : {}),
   }).eq('id', input.subscriptionId);
 
   // Only one current plan at a time. Also clear any older revoked/rejected

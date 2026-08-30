@@ -12,7 +12,6 @@ type PaymentData = {
   payment_method: string;
   payment_date: string;
   txn_id?: string;
-  instructor: { name: string; email: string } | null;
   subscription: {
     plan_id?: string;
     plan_type: string;
@@ -40,64 +39,9 @@ function fmtDate(iso?: string): string {
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c as string]) as string,
-  );
-}
-
-/** Builds a printable invoice (transaction/payment ID + payment details) and
- *  triggers a browser download so the caller can save / open as PDF. */
-function downloadInvoice(data: PaymentData) {
-  const id = data.id || '';
-  const txn = data.txn_id || `TXN-${data.payment_date ? new Date(data.payment_date).getTime() : Date.now()}`;
-  const plan = data.subscription?.plan_type || data.description || 'Subscription';
-  const lineItems = [
-    ['Plan', plan],
-    ['Amount', `\u00a3${data.amount.toFixed(2)}`],
-    ['Transaction ID', txn],
-    ['Payment ID', id],
-    ['Method', data.payment_method || 'Stripe'],
-    ['Paid on', fmtDate(data.payment_date) || '—'],
-  ];
-  if (data.subscription?.start_date) lineItems.push(['Valid from', fmtDate(data.subscription.start_date)]);
-  if (data.subscription?.end_date) lineItems.push(['Valid until', fmtDate(data.subscription.end_date)]);
-
-  const rows = lineItems
-    .map(
-      ([k, v]) =>
-        `<tr><td style="padding:10px 0;color:#666;">${escapeHtml(k)}</td>` +
-        `<td style="padding:10px 0;text-align:right;font-weight:600;color:#1b2a20;">${escapeHtml(v)}</td></tr>`,
-    )
-    .join('');
-
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(txn)}</title></head>
-<body style="font-family:Arial,Helvetica,sans-serif;color:#1b2a20;margin:0;padding:0;">
-  <div style="background:linear-gradient(135deg,#FF6B35,#E8451A);padding:34px;">
-    <h1 style="color:#fff;margin:0;font-size:22px;">Lesson Tracker Pro — Invoice</h1>
-    <p style="color:rgba(255,255,255,.85);margin:6px 0 0;font-size:13px;">Payment Confirmed</p>
-  </div>
-  <div style="padding:30px;">
-    <h2 style="font-size:16px;margin:0 0 6px;">${escapeHtml(plan)}</h2>
-    <p style="color:#666;font-size:13px;margin:0 0 16px;">Thank you — your subscription payment was processed successfully.</p>
-    <table style="width:100%;border-collapse:collapse;font-size:14px;">${rows}</table>
-    <div style="border-top:1px solid #eee;margin-top:18px;padding-top:14px;">
-      <p style="font-size:13px;color:#666;margin:0;">Paid via Stripe.</p>
-      <p style="font-size:12px;color:#999;margin:10px 0 0;">For billing questions, contact support. This receipt was generated automatically.</p>
-    </div>
-  </div>
-</body></html>`;
-
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `lesson-tracker-invoice-${txn}.html`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+/** Opens the server-rendered printable invoice for the confirmed payment. */
+function openInvoice(paymentId: string) {
+  window.open(`/api/invoice?payment=${encodeURIComponent(paymentId)}`, '_blank');
 }
 
 export default function PaymentSuccessPage() {
@@ -137,13 +81,27 @@ function PaymentSuccessContent() {
       try {
         const r = await fetch(`/api/payment?${id}`);
         const json = await r.json();
-        if (!r.ok || json.error) throw new Error(json.error || 'Failed to load payment details');
+        if (!r.ok || json.error) {
+          throw Object.assign(new Error(json.error || 'Failed to load payment details'), { status: r.status });
+        }
         res = json;
       } catch (e) {
         if (stopped) return;
-        // A failed /api/payment fetch is not proof the payment failed. Keep
-        // polling until the 90s timeout so a slow webhook or DB hiccup never
-        // shows a false "not verified" state; the timeout view offers Refresh.
+        // A transient network/DB hiccup is not proof the payment failed — keep
+        // polling so a slow webhook never shows a false failure. But a 4xx/5xx
+        // is a real problem (bad link, or the server is misconfigured) that
+        // will not fix itself; surface it quickly instead of spinning forever.
+        const status = (e as { status?: number })?.status ?? 0;
+        if (status === 404) {
+          setView({ kind: 'failed', data: null, message: 'We could not find that payment. If you were charged, please contact support.' });
+          stopped = true;
+          return;
+        }
+        if (status >= 500 && Date.now() - started > 5000) {
+          setView({ kind: 'failed', data: null, message: 'Payment verification is temporarily unavailable. Your payment may still have been received — please contact support.' });
+          stopped = true;
+          return;
+        }
         if (Date.now() - started > 90000) {
           setView({ kind: 'timeout', data: null });
           stopped = true;
@@ -206,7 +164,7 @@ function PaymentSuccessContent() {
               setView({ kind: 'success', data: { ...current, subscription: confirmRes.subscription } });
               stopped = true;
             } else if (confirmRes?.payment?.status === 'failed') {
-              setView({ kind: 'failed', data: current, message: 'Your payment could not be confirmed.' });
+              setView({ kind: 'failed', data: current, message: confirmRes?.message || 'Your payment could not be confirmed.' });
               stopped = true;
             }
           })
@@ -372,13 +330,13 @@ function PaymentSuccessContent() {
             <div className="flex flex-col gap-3">
               {success && successData && (
                 <button
-                  onClick={() => downloadInvoice(successData)}
+                  onClick={() => successData.id && openInvoice(successData.id)}
                   className="btn-primary w-full justify-center text-base py-3"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" />
                   </svg>
-                  Download Invoice
+                  View Invoice
                 </button>
               )}
               <Link
