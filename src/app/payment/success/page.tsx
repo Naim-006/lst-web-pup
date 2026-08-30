@@ -181,10 +181,12 @@ function PaymentSuccessContent() {
         return;
       }
 
-      // If the money has been received but the webhook has not activated the
-      // subscription yet (~30s), ask the server to re-confirm directly with
-      // Stripe. Safe: the server verifies the session is paid.
-      if (payCompleted && !hasConfirmed.current && Date.now() - started > 30000) {
+      // If the webhook has not activated the subscription after a short
+      // window (~20s), ask the server to verify directly with Stripe. Safe:
+      // the server never trusts the browser and only flips the row to active
+      // once Stripe confirms the session is actually paid. This also handles
+      // the case where the webhook is delayed or was not delivered at all.
+      if (!hasConfirmed.current && Date.now() - started > 20000) {
         hasConfirmed.current = true;
         fetch('/api/payment/confirm', {
           method: 'POST',
