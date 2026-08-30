@@ -175,10 +175,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Opportunistic cleanup: expire pending rows older than 24h for this
-  // instructor so abandoned checkouts cannot linger in a grace state.
+  if (event.type === 'checkout.session.async_payment_failed' ||
+      event.type === 'payment_intent.payment_failed') {
+    // Stripe explicitly reported the payment failed. Mark records failed so
+    // the app shows "Payment Failed" and the instructor keeps their previous
+    // plan. The subscription is rejected, never activated.
+    if (paymentId) {
+      await admin.from('instructor_payments').update({ status: 'failed' }).eq('id', paymentId);
+    }
+    if (subscriptionId) {
+      await admin.from('instructor_subscriptions')
+        .update({ status: 'rejected', payment_status: 'failed' })
+        .eq('id', subscriptionId)
+        .eq('status', 'pending');
+    }
+  }
+
+  // Opportunistic cleanup: expire pending rows older than 60 minutes for this
+  // instructor (the payment window) so abandoned checkouts fail instead of
+  // lingering in an indefinite pending state.
   if (instructorId) {
-    const staleCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const staleCutoff = new Date(Date.now() - 60 * 60 * 1000);
     await admin.from('instructor_subscriptions')
       .update({ status: 'rejected', payment_status: 'failed' })
       .eq('instructor_id', instructorId)
