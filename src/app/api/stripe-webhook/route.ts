@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
   const amount = session.amount_total ? session.amount_total / 100 : 0;
   const paymentIntentId = (session.payment_intent as string) || undefined;
 
-  // Server-side expiry sweep: any pending attempt whose 2-minute window has
+  // Server-side expiry sweep: any pending attempt whose 15-minute window has
   // passed is expired (never an eternal "pending"), even if the Stripe
   // session-expired event was never delivered.
   {
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
       if (await stripeSessionIsPaid(stripeSecretKey, sid)) continue;
       await expireStripeSession(stripeSecretKey, sid);
       await admin.from('instructor_payments')
-        .update({ status: 'expired', failure_reason: 'Payment window (2 minutes) expired' })
+        .update({ status: 'expired', failure_reason: 'Payment window (15 minutes) expired' })
         .eq('id', p.id)
         .eq('status', 'pending');
       if (p.subscription_id) {
@@ -152,6 +152,248 @@ export async function POST(req: NextRequest) {
         .eq('id', s.id)
         .eq('status', 'active');
     }
+  }
+
+  // Scheduled downgrades that took effect (start_date arrived) but were never
+  // paid within their 3-day grace are dead. Close them cleanly so a
+  // long-expired queued downgrade can never look like a pending attempt.
+  {
+    const queuedCutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: overdueQueued } = await admin
+      .from('instructor_subscriptions')
+      .select('id')
+      .eq('status', 'pending')
+      .eq('queued', true)
+      .lt('start_date', queuedCutoff);
+    for (const s of overdueQueued ?? []) {
+      await admin.from('instructor_subscriptions')
+        .update({ status: 'cancelled', payment_status: 'expired' })
+        .eq('id', s.id)
+        .eq('status', 'pending')
+        .eq('queued', true);
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // checkout.session.completed (mode=subscription) — auto-pay onboarding.
+  // The instructor set up a card on Stripe's hosted page; the subscription is
+  // anchored to their current term end, so no money moves yet. We record the
+  // Stripe ids and flip auto_pay on. The first invoice lands at the anchor.
+  // ---------------------------------------------------------------
+  if (event.type === 'checkout.session.completed' && session.mode === 'subscription') {
+    const stripeSubId = (session.subscription as string) ?? null;
+    const customerId = (session.customer as string) ?? null;
+    if (instructorId && stripeSubId) {
+      let targetId: string | null = null;
+      {
+        const { data: rows } = await admin
+          .from('instructor_subscriptions')
+          .select('id, status, end_date')
+          .eq('instructor_id', instructorId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
+        const nowDate = new Date();
+        for (const r of rows ?? []) {
+          const end = r.end_date ? new Date(r.end_date as string) : null;
+          if (end && end.getTime() > nowDate.getTime()) { targetId = r.id as string; break; }
+        }
+      }
+      if (targetId) {
+        await admin.from('instructor_subscriptions')
+          .update({
+            auto_pay: true,
+            stripe_customer_id: customerId,
+            stripe_subscription_id: stripeSubId,
+          })
+          .eq('id', targetId)
+          .eq('status', 'active');
+      } else if (planId && instructorId) {
+        // No active covering row yet (edge case): attach to the latest row.
+        const { data: fallback } = await admin
+          .from('instructor_subscriptions')
+          .select('id')
+          .eq('instructor_id', instructorId)
+          .eq('plan_id', planId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fallback?.id) {
+          await admin.from('instructor_subscriptions')
+            .update({
+              auto_pay: true,
+              stripe_customer_id: customerId,
+              stripe_subscription_id: stripeSubId,
+            })
+            .eq('id', fallback.id)
+            .eq('status', 'active');
+        }
+      }
+    }
+    return NextResponse.json({ received: true, collected: 'subscription' });
+  }
+
+  // ---------------------------------------------------------------
+  // invoice.paid — an auto-pay renewal was charged. Records a succeeded
+  // payment in the transactions history and rolls the current term forward.
+  // A late payment that lands after the 3-day grace cancelled the row
+  // reactivates it (the money was genuinely received).
+  // ---------------------------------------------------------------
+  if (event.type === 'invoice.paid') {
+    const invoice = event.data?.object ?? {};
+    const stripeSubId = (invoice.subscription as string) ?? null;
+    const invoiceId = invoice.id as string;
+    const amount = (invoice.amount_paid ?? invoice.amount_due ?? 0) / 100;
+    const paymentIntentId = (invoice.payment_intent as string) ?? null;
+
+    if (stripeSubId) {
+      const { data: subRow } = await admin
+        .from('instructor_subscriptions')
+        .select('*')
+        .eq('stripe_subscription_id', stripeSubId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (subRow) {
+        const subInstructorId = subRow.instructor_id as string;
+        const { data: dupe } = await admin
+          .from('instructor_payments')
+          .select('id')
+          .eq('stripe_invoice_id', invoiceId)
+          .limit(1)
+          .maybeSingle();
+        if (!dupe) {
+          let months = 1;
+          let planName = (subRow.plan_type as string) ?? 'Subscription';
+          const planIdVal = subRow.plan_id as string | null;
+          if (planIdVal) {
+            const planRes = await admin
+              .from('subscription_plans')
+              .select('duration_months, name')
+              .eq('id', planIdVal)
+              .maybeSingle();
+            months = Number(planRes?.data?.['duration_months'] ?? 0) || 1;
+            planName = (planRes?.data?.['name'] as string) ?? planName;
+          }
+
+          const txnId = `TXN-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+          const { error: payErr } = await admin
+            .from('instructor_payments')
+            .insert({
+              instructor_id: subInstructorId,
+              subscription_id: subRow.id,
+              amount,
+              payment_date: new Date().toISOString(),
+              status: 'succeeded',
+              payment_method: 'stripe',
+              description: `${planName} auto-pay payment`,
+              txn_id: txnId,
+              payment_intent_id: paymentIntentId,
+              stripe_invoice_id: invoiceId,
+            });
+          if (payErr) console.error('invoice.paid: failed to record payment:', payErr.message);
+
+          const nowDate = new Date();
+          const currentEnd = subRow.end_date ? new Date(subRow.end_date as string) : nowDate;
+          const base = currentEnd.getTime() > nowDate.getTime() ? currentEnd : nowDate;
+          const newEnd = new Date(base.getTime() + months * 30 * 24 * 60 * 60 * 1000);
+
+          // If the row is active, roll the term forward. If the 3-day grace
+          // force-cancelled it but the money still arrived (Stripe dunning),
+          // reactivate — but never supersede a newer active term.
+          if (subRow.status === 'active') {
+            await admin.from('instructor_subscriptions')
+              .update({ end_date: newEnd.toISOString(), payment_status: 'succeeded', amount })
+              .eq('id', subRow.id)
+              .eq('status', 'active');
+          } else if (subRow.status === 'cancelled') {
+            const { data: newerActives } = await admin
+              .from('instructor_subscriptions')
+              .select('id, end_date')
+              .eq('instructor_id', subInstructorId)
+              .eq('status', 'active');
+            const hasActiveCoverage = (newerActives ?? []).some((r) => {
+              const end = r.end_date ? new Date(r.end_date as string) : null;
+              return end && end.getTime() > nowDate.getTime();
+            });
+            if (!hasActiveCoverage) {
+              await admin.from('instructor_subscriptions')
+                .update({ status: 'active', payment_status: 'succeeded', end_date: newEnd.toISOString(), amount })
+                .eq('id', subRow.id)
+                .eq('status', 'cancelled');
+            }
+          }
+        }
+      }
+    }
+    return NextResponse.json({ received: true, collected: 'invoice.paid' });
+  }
+
+  // invoice.payment_failed — an auto-pay charge could not be collected.
+  // Stripe keeps retrying (dunning); access stays up to the same 3-day grace
+  // boundary after the period ends, matching the manual-flow promise.
+  if (event.type === 'invoice.payment_failed') {
+    const invoice = event.data?.object ?? {};
+    const stripeSubId = (invoice.subscription as string) ?? null;
+    if (stripeSubId) {
+      await admin.from('instructor_subscriptions')
+        .update({ payment_status: 'past_due' })
+        .eq('stripe_subscription_id', stripeSubId)
+        .eq('status', 'active');
+    }
+    return NextResponse.json({ received: true, collected: 'invoice.payment_failed' });
+  }
+
+  // customer.subscription.* — syncs termination states. When a Stripe
+  // subscription ends (turned off at period end, or Stripe gave up charging),
+  // the row falls back to the normal manual mode: if the paid period is over,
+  // the standard 3-day grace applies; if the period is still running
+  // (unexpected mid-term life), it is cancelled now.
+  if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.deleted') {
+    const subObj = event.data?.object ?? {};
+    const stripeSubId = (subObj.id as string) ?? null;
+    const subStatus = (subObj.status as string) ?? '';
+    if (stripeSubId) {
+      const { data: subRow } = await admin
+        .from('instructor_subscriptions')
+        .select('id, status, end_date, auto_pay, payment_status')
+        .eq('stripe_subscription_id', stripeSubId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (subRow) {
+        const nowDate = new Date();
+        const endDate = subRow.end_date ? new Date(subRow.end_date as string) : null;
+        const periodOver = endDate != null && endDate.getTime() <= nowDate.getTime();
+
+        if (subStatus === 'past_due' || subStatus === 'unpaid') {
+          await admin.from('instructor_subscriptions')
+            .update({ payment_status: 'past_due' })
+            .eq('id', subRow.id)
+            .eq('status', 'active');
+        } else if (subStatus === 'canceled' || event.type === 'customer.subscription.deleted') {
+          await admin.from('instructor_subscriptions')
+            .update({ auto_pay: false })
+            .eq('id', subRow.id);
+          if (!periodOver) {
+            await admin.from('instructor_subscriptions')
+              .update({ status: 'cancelled', payment_status: subRow.payment_status ?? 'expired' })
+              .eq('id', subRow.id)
+              .eq('status', 'active');
+          }
+        } else if (event.type === 'customer.subscription.updated') {
+          // Live subscription still running but marked to cancel at period
+          // end (the disable-auto-pay flow already mirrored this).
+          if (subObj.cancel_at_period_end === true) {
+            await admin.from('instructor_subscriptions')
+              .update({ auto_pay: false })
+              .eq('id', subRow.id);
+          }
+        }
+      }
+    }
+    return NextResponse.json({ received: true, collected: 'customer.subscription' });
   }
 
   if (event.type === 'checkout.session.completed') {

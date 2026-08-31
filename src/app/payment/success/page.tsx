@@ -135,7 +135,7 @@ function PaymentSuccessContent() {
       }
       if (payFailed) {
         setView({ kind: 'failed', data: current, message: current.status === 'expired'
-          ? 'Your payment window (2 minutes) expired before the payment was completed. No charge was made — no payment was taken.'
+          ? 'Your payment window (15 minutes) expired before the payment was completed. No charge was made — no payment was taken.'
           : current.status === 'cancelled'
             ? 'This payment attempt was replaced by a newer checkout. No payment was taken.'
             : (current.failure_reason ? `Your payment could not be confirmed: ${current.failure_reason}` : 'Your payment could not be confirmed. Please try again.') });
