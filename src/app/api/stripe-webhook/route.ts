@@ -98,6 +98,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Post-expiry grace sweep (global). Any active subscription whose period
+  // ended more than 3 days ago is cancelled — the instructor had 3 days to
+  // pay to continue and did not, so access is now blocked.
+  {
+    const graceCutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: expiredActives } = await admin
+      .from('instructor_subscriptions')
+      .select('id')
+      .eq('status', 'active')
+      .lt('end_date', graceCutoff);
+    for (const s of expiredActives ?? []) {
+      await admin.from('instructor_subscriptions')
+        .update({ status: 'cancelled', payment_status: 'expired' })
+        .eq('id', s.id)
+        .eq('status', 'active');
+    }
+  }
+
   if (event.type === 'checkout.session.completed') {
     // NEVER activate from metadata alone: only when Stripe confirms the
     // payment was captured AND the charged amount matches the payment row.
