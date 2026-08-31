@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({
       error: 'Payment not confirmed',
-      message: 'Your payment window (1 hour) expired before the payment was completed. Please start a new checkout (Pay Again).',
+      message: 'Your payment window (2 minutes) expired before the payment was completed. No charge was made.',
       payment: { id: payment.id, status: 'expired', failure_reason: 'Checkout session expired' },
     }, { status: 409 });
   }

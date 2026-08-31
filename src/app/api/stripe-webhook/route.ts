@@ -2,6 +2,38 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { activateSubscription, createActiveSubscription } from '@/lib/activateSubscription';
 
+// Force-expire a live Stripe Checkout Session. A session tied to a failed,
+// cancelled or window-expired attempt must be dead immediately so the link can
+// never accidentally be paid later.
+async function expireStripeSession(secretKey: string, sessionId: string | null) {
+  if (!secretKey || !sessionId) return;
+  try {
+    await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}/expire`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secretKey}` },
+    });
+  } catch {
+    // best-effort: the server-side sweep has already closed the attempt
+  }
+}
+
+// Whether Stripe already shows this session as paid. Guards the expiry sweep
+// against a payment that was captured but whose webhook is delayed — we must
+// never expire an attempt that actually received money.
+async function stripeSessionIsPaid(secretKey: string, sessionId: string | null) {
+  if (!secretKey || !sessionId) return false;
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}`, {
+      headers: { Authorization: `Bearer ${secretKey}` },
+    });
+    if (!res.ok) return false;
+    const s = await res.json();
+    return s.status === 'complete' && s.payment_status === 'paid';
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const sig = req.headers.get('stripe-signature') || '';
@@ -21,6 +53,7 @@ export async function POST(req: NextRequest) {
 
   const config = (configRow?.value as Record<string, unknown>) ?? {};
   const webhookSecret = config['stripe_webhook_secret'] as string;
+  const stripeSecretKey = (config['stripe_secret_key'] as string) ?? '';
 
   // Never process events without a configured secret — otherwise anyone could
   // forge a request and activate subscriptions for free.
@@ -75,18 +108,23 @@ export async function POST(req: NextRequest) {
   const amount = session.amount_total ? session.amount_total / 100 : 0;
   const paymentIntentId = (session.payment_intent as string) || undefined;
 
-  // Server-side expiry sweep: any pending attempt whose 60-minute window has
+  // Server-side expiry sweep: any pending attempt whose 2-minute window has
   // passed is expired (never an eternal "pending"), even if the Stripe
   // session-expired event was never delivered.
   {
     const { data: stalePays } = await admin
       .from('instructor_payments')
-      .select('id, subscription_id')
+      .select('id, subscription_id, stripe_session_id')
       .eq('status', 'pending')
       .lt('expires_at', new Date().toISOString());
     for (const p of stalePays ?? []) {
+      // A session Stripe already shows as paid is a webhook-delay, not an
+      // abandonment — never expire it here.
+      const sid = (p.stripe_session_id as string | null) ?? null;
+      if (await stripeSessionIsPaid(stripeSecretKey, sid)) continue;
+      await expireStripeSession(stripeSecretKey, sid);
       await admin.from('instructor_payments')
-        .update({ status: 'expired', failure_reason: 'Payment window (1 hour) expired' })
+        .update({ status: 'expired', failure_reason: 'Payment window (2 minutes) expired' })
         .eq('id', p.id)
         .eq('status', 'pending');
       if (p.subscription_id) {
@@ -233,6 +271,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (event.type === 'checkout.session.async_payment_failed') {
+    // Kill the link so the failed attempt can never be paid through it.
+    await expireStripeSession(stripeSecretKey, sessionId);
     if (paymentId) {
       await admin.from('instructor_payments')
         .update({ status: 'failed', failure_reason: 'Payment could not be completed (card declined or payment method rejected)' })
@@ -257,11 +297,14 @@ export async function POST(req: NextRequest) {
     if (intentId) {
       const { data: failedPay } = await admin
         .from('instructor_payments')
-        .select('id, subscription_id')
+        .select('id, subscription_id, stripe_session_id')
         .eq('payment_intent_id', intentId)
         .eq('status', 'pending')
         .maybeSingle();
       if (failedPay) {
+        // Declined card leaves the session open — force-expire it so the dead
+        // attempt can never accidentally be paid.
+        await expireStripeSession(stripeSecretKey, (failedPay.stripe_session_id as string | null) ?? null);
         await admin.from('instructor_payments')
           .update({ status: 'failed', failure_reason: failureReason ?? 'Payment declined' })
           .eq('id', failedPay.id)
@@ -276,10 +319,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Opportunistic cleanup: expire pending rows older than 1 hour for this
+  // Opportunistic cleanup: expire pending rows older than 2 minutes for this
   // instructor so abandoned checkouts cannot linger in a grace state.
   if (instructorId) {
-    const staleCutoff = new Date(Date.now() - 60 * 60 * 1000);
+    const staleCutoff = new Date(Date.now() - 2 * 60 * 1000);
     await admin.from('instructor_subscriptions')
       .update({ status: 'rejected', payment_status: 'expired' })
       .eq('instructor_id', instructorId)
