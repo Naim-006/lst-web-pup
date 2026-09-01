@@ -1,0 +1,17 @@
+
+> lesson-tracker-pupil-web@1.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 2.6s
+ ○ Compiling /src/middleware ...
+ ✓ Compiled /src/middleware in 750ms (72 modules)
+ ○ Compiling /api/invoice ...
+ ✓ Compiled /api/invoice in 2.1s (155 modules)
+ GET /api/invoice?payment=e8a7723a-5c01-4c98-baae-6f907c064dd3 500 in 3368ms
+ ✓ Compiled in 425ms (155 modules)
+ GET /api/invoice?payment=e8a7723a-5c01-4c98-baae-6f907c064dd3 200 in 441ms
