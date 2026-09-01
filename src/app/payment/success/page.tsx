@@ -41,9 +41,14 @@ function fmtDate(iso?: string): string {
   }
 }
 
-/** Opens the server-rendered printable invoice for the confirmed payment. */
-function openInvoice(paymentId: string) {
-  window.open(`/api/invoice?payment=${encodeURIComponent(paymentId)}`, '_blank');
+/** Downloads the PDF invoice for the confirmed payment. */
+function downloadInvoice(paymentId: string) {
+  const a = document.createElement('a');
+  a.href = `/api/invoice?payment=${encodeURIComponent(paymentId)}`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 export default function PaymentSuccessPage() {
@@ -342,13 +347,13 @@ function PaymentSuccessContent() {
             <div className="flex flex-col gap-3">
               {success && successData && (
                 <button
-                  onClick={() => successData.id && openInvoice(successData.id)}
+                  onClick={() => successData.id && downloadInvoice(successData.id)}
                   className="btn-primary w-full justify-center text-base py-3"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" />
                   </svg>
-                  View Invoice
+                  Download Invoice
                 </button>
               )}
               <Link
