@@ -27,10 +27,8 @@ export default function ResetPasswordPage() {
     };
   }, [password]);
 
-  const satisfiedCount = useMemo(
-    () => Object.values(checks).filter(Boolean).length,
-    [checks]
-  );
+  const allConditionsMet = Object.values(checks).every(Boolean);
+  const satisfiedCount = Object.values(checks).filter(Boolean).length;
   const strengthPercent = (satisfiedCount / 4) * 100;
   // -----------------------------------------
 
@@ -41,7 +39,6 @@ export default function ResetPasswordPage() {
       setReady(true);
     };
 
-    // Never leave the user on the "Verifying reset link…" spinner forever.
     const failTimer = setTimeout(() => {
       setReady(true);
       if (!validLink.current) {
@@ -59,8 +56,6 @@ export default function ResetPasswordPage() {
       const code = params.get('code');
 
       if (code) {
-        // PKCE-style code issued by Supabase's hosted verify page (used when
-        // the email was initiated from a PKCE client). Exchange it explicitly.
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error && data.session) markValid();
         else setReady(true);
@@ -68,8 +63,6 @@ export default function ResetPasswordPage() {
       }
 
       if (tokenHash) {
-        // New-style recovery links carry the token in the query string; the
-        // SDK does not auto-exchange it, so verify it explicitly.
         const { error } = await supabase.auth.verifyOtp({
           token_hash: tokenHash,
           type: 'recovery',
@@ -79,9 +72,6 @@ export default function ResetPasswordPage() {
         return;
       }
 
-      // Legacy links: supabase-js processes the recovery hash during module
-      // load and strips it from the URL, so the event above may be missed.
-      // If a session exists we can safely show the form.
       const { data } = await supabase.auth.getSession();
       if (data.session) markValid();
     };
@@ -289,7 +279,11 @@ export default function ResetPasswordPage() {
             />
           </div>
 
-          <button type="submit" disabled={loading} className="btn-primary w-full mt-2">
+          <button
+            type="submit"
+            disabled={loading || !allConditionsMet}
+            className="btn-primary w-full mt-2"
+          >
             {loading ? <><span className="spinner" /> Updating…</> : 'Update Password'}
           </button>
         </form>
