@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
@@ -15,6 +15,24 @@ export default function ResetPasswordPage() {
   const [success, setSuccess] = useState(false);
   const [ready, setReady] = useState(false);
   const validLink = useRef(false);
+
+  // --- Password strength checks (UI only) ---
+  const checks = useMemo(() => {
+    const pwd = password;
+    return {
+      length: pwd.length >= 6,
+      lowercase: /[a-z]/.test(pwd),
+      uppercase: /[A-Z]/.test(pwd),
+      numberOrSymbol: /[0-9]/.test(pwd) || /[^a-zA-Z0-9]/.test(pwd),
+    };
+  }, [password]);
+
+  const satisfiedCount = useMemo(
+    () => Object.values(checks).filter(Boolean).length,
+    [checks]
+  );
+  const strengthPercent = (satisfiedCount / 4) * 100;
+  // -----------------------------------------
 
   useEffect(() => {
     const markValid = () => {
@@ -154,19 +172,121 @@ export default function ResetPasswordPage() {
           <div>
             <label className="field-label">New Password</label>
             <div className="relative">
-              <input type={showPw ? 'text' : 'password'} className="field-input pr-12" placeholder="Min 8 characters" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="new-password" />
-              <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] p-1">
+              <input
+                type={showPw ? 'text' : 'password'}
+                className="field-input pr-12"
+                placeholder="Min 8 characters"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] p-1"
+              >
                 {showPw ? (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                  </svg>
                 ) : (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
                 )}
               </button>
             </div>
+
+            {/* Password strength indicator (UI only) */}
+            {password.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[var(--text-muted)]">Password strength</span>
+                  <span className="text-[var(--text-secondary)] font-medium">
+                    {satisfiedCount}/4
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-[var(--border-color)] rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-300 ease-in-out"
+                    style={{
+                      width: `${strengthPercent}%`,
+                      backgroundColor:
+                        satisfiedCount === 4
+                          ? 'var(--sunset)'
+                          : satisfiedCount >= 2
+                          ? 'var(--sunset-light)'
+                          : 'var(--text-muted)',
+                    }}
+                  />
+                </div>
+                <ul className="text-xs space-y-1 pt-1">
+                  <li className="flex items-center gap-2">
+                    {checks.length ? (
+                      <svg className="w-3.5 h-3.5 text-[var(--sunset)]" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <span className="w-3.5 h-3.5 rounded-full border border-[var(--border-color)]" />
+                    )}
+                    <span className={checks.length ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}>
+                      At least 6 characters
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    {checks.lowercase ? (
+                      <svg className="w-3.5 h-3.5 text-[var(--sunset)]" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <span className="w-3.5 h-3.5 rounded-full border border-[var(--border-color)]" />
+                    )}
+                    <span className={checks.lowercase ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}>
+                      At least one lowercase letter
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    {checks.uppercase ? (
+                      <svg className="w-3.5 h-3.5 text-[var(--sunset)]" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <span className="w-3.5 h-3.5 rounded-full border border-[var(--border-color)]" />
+                    )}
+                    <span className={checks.uppercase ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}>
+                      At least one uppercase letter
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    {checks.numberOrSymbol ? (
+                      <svg className="w-3.5 h-3.5 text-[var(--sunset)]" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <span className="w-3.5 h-3.5 rounded-full border border-[var(--border-color)]" />
+                    )}
+                    <span className={checks.numberOrSymbol ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}>
+                      At least one number or symbol
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            )}
           </div>
+
           <div>
             <label className="field-label">Confirm Password</label>
-            <input type={showPw ? 'text' : 'password'} className="field-input" placeholder="Repeat your password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required autoComplete="new-password" />
+            <input
+              type={showPw ? 'text' : 'password'}
+              className="field-input"
+              placeholder="Repeat your password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+            />
           </div>
 
           <button type="submit" disabled={loading} className="btn-primary w-full mt-2">
